@@ -1,0 +1,12 @@
+.navbar-brand { font-weight: bold; }
+.service-card { transition: transform 0.2s; }
+.service-card:hover { transform: translateY(-5px); }
+.badge-category { font-size: 0.8em; }
+.navbar .btn-link.nav-link { text-decoration: none; }
+.code-input { font-size: 1.6rem; letter-spacing: 0.4em; text-align: left; font-family: monospace; }
+.recovery-codes { font-family: monospace; font-size: 1.1rem; column-count: 2; }
+.manual-key { font-family: monospace; font-size: 1.1rem; word-break: break-all; }
+.oauth-btn { text-align: left; }
+.oauth-icon { display: inline-block; width: 1.6em; font-weight: bold; text-align: center; }
+.oauth-google .oauth-icon { color: #4285f4; }
+.oauth-facebook .oauth-icon { color: #1877f2; }

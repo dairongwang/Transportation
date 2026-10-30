@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - ServiceUber{% endblock %}
+{% block content %}
+<h2>Dashboard — {{ current_user.username }}</h2>
+
+<div class="row">
+    <div class="col-md-6">
+        <h4>My Posted Services</h4>
+        {% if my_services %}
+        <ul class="list-group">
+            {% for s in my_services %}
+            <li class="list-group-item">
+                <strong>{{ s.title }}</strong> — ${{ "%.2f"|format(s.price) }}
+                <span class="badge bg-{{ 'success' if s.available else 'secondary' }}">{{ 'Available' if s.available else 'Unavailable' }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p>No services posted. <a href="{{ url_for('post_service') }}">Post one</a></p>
+        {% endif %}
+    </div>
+    <div class="col-md-6">
+        <h4>My Bookings (as Buyer)</h4>
+        {% if my_bookings %}
+        <ul class="list-group">
+            {% for b in my_bookings %}
+            <li class="list-group-item">
+                {{ b.service.title }} — <span class="badge bg-info">{{ b.status }}</span>
+                {% if b.status in ('pending', 'accepted') %}
+                <form method="post" action="{{ url_for('update_booking', booking_id=b.id) }}" class="d-inline float-end">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="status" value="cancelled">
+                    <button class="btn btn-sm btn-outline-danger">Cancel</button>
+                </form>
+                {% endif %}
+                <br><small>Token: {{ b.payment_token }} | ${{ "%.2f"|format(b.amount) }}</small>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p>No bookings yet.</p>
+        {% endif %}
+    </div>
+</div>
+
+<hr>
+<h4>Incoming Booking Requests (as Seller)</h4>
+{% if incoming %}
+<div class="table-responsive"><table class="table table-sm">
+    <thead><tr><th>Service</th><th>Buyer</th><th>Status</th><th>Token</th><th>Action</th></tr></thead>
+    <tbody>
+    {% for b in incoming %}
+    <tr>
+        <td>{{ b.service.title }}</td>
+        <td>{{ b.buyer.username }}</td>
+        <td><span class="badge bg-warning">{{ b.status }}</span></td>
+        <td><code>{{ b.payment_token }}</code></td>
+        <td>
+            <form method="post" action="{{ url_for('update_booking', booking_id=b.id) }}" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <select name="status" class="form-select form-select-sm d-inline-block w-auto">
+                    <option value="accepted">Accept</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Complete</option>
+                    <option value="cancelled">Cancel</option>
+                </select>
+                <button class="btn btn-sm btn-primary">Update</button>
+            </form>
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table></div>
+{% else %}
+<p>No incoming requests.</p>
+{% endif %}
+{% endblock %}

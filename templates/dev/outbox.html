@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Fake inbox (dev) - ServiceUber{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="mb-0">📬 Fake inbox <span class="badge bg-warning text-dark">dev only</span></h2>
+    <div>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('dev.outbox') }}">Refresh</a>
+        <form method="post" action="{{ url_for('dev.outbox_clear') }}" class="d-inline">
+            <button class="btn btn-sm btn-outline-danger">Clear</button>
+        </form>
+    </div>
+</div>
+<p class="text-muted small mt-2">E-mails and SMS that the app "sent" through the <code>console</code>/<code>memory</code> stub backends. Open this page on any device to read your codes. Newest first.</p>
+
+{% if messages %}
+<div class="list-group">
+    {% for m in messages %}
+    <div class="list-group-item">
+        <div class="d-flex justify-content-between">
+            <strong>{{ '📧 E-mail' if m.channel == 'email' else '📱 SMS' }} → {{ m.to }}</strong>
+            <small class="text-muted">{{ m.sent_at[:19].replace('T', ' ') }} UTC</small>
+        </div>
+        {% if m.channel == 'email' %}<div class="small text-muted">{{ m.subject }}</div>{% endif %}
+        <pre class="mb-0 mt-1" style="white-space: pre-wrap">{{ m.body }}</pre>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p>No messages yet. Trigger one by enabling e-mail/SMS two-factor authentication or requesting a code at sign-in.</p>
+{% endif %}
+{% endblock %}

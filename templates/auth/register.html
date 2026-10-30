@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Register - ServiceUber{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-5">
+        <h2>Register</h2>
+        <form method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="mb-3">
+                <label class="form-label" for="username">Username</label>
+                <input type="text" id="username" name="username" class="form-control" required minlength="3" maxlength="80"
+                       pattern="[A-Za-z0-9_.\-]+" value="{{ form.get('username', '') }}" autocomplete="username">
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="email">Email</label>
+                <input type="email" id="email" name="email" class="form-control" required value="{{ form.get('email', '') }}" autocomplete="email">
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="password">Password <small class="text-muted">(min {{ config.PASSWORD_MIN_LENGTH }} characters)</small></label>
+                <input type="password" id="password" name="password" class="form-control" required minlength="{{ config.PASSWORD_MIN_LENGTH }}" autocomplete="new-password">
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="role">Role</label>
+                <select name="role" id="role" class="form-select">
+                    <option value="both" {% if form.get('role') == 'both' %}selected{% endif %}>Both (Buy & Sell)</option>
+                    <option value="seller" {% if form.get('role') == 'seller' %}selected{% endif %}>Seller only</option>
+                    <option value="buyer" {% if form.get('role') == 'buyer' %}selected{% endif %}>Buyer only</option>
+                </select>
+            </div>
+            {% if captcha_required_for_ip() %}{% include "auth/_captcha.html" %}{% endif %}
+            <button type="submit" class="btn btn-success">Register</button>
+        </form>
+        {% include "auth/_oauth_buttons.html" %}
+    </div>
+</div>
+{% endblock %}

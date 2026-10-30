@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Set up SMS codes - ServiceUber{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <h2>Set up SMS codes</h2>
+        <p class="text-muted small">SMS is convenient but vulnerable to SIM-swapping. We recommend an authenticator app as your primary method and SMS only as a backup.</p>
+
+        <form method="post" class="mb-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="send">
+            <div class="mb-3">
+                <label class="form-label" for="phone">Mobile number (international format)</label>
+                <input type="tel" id="phone" name="phone" class="form-control" placeholder="+15551234567" required autocomplete="tel"
+                       value="{{ pending_phone or current_phone or '' }}">
+            </div>
+            <button type="submit" class="btn btn-outline-primary">Send code by SMS</button>
+        </form>
+        {% with channel = 'sms' %}{% include "auth/_stub_notice.html" %}{% endwith %}
+
+        {% if pending_phone %}
+        <form method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="verify">
+            <div class="mb-3">
+                <label class="form-label" for="code">6-digit code sent to {{ pending_phone }}</label>
+                <input type="text" id="code" name="code" class="form-control code-input" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" required autocomplete="one-time-code" autofocus>
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="current_password">Confirm your password</label>
+                <input type="password" id="current_password" name="current_password" class="form-control" required autocomplete="current-password">
+            </div>
+            <button type="submit" class="btn btn-primary">Enable SMS codes</button>
+            <a href="{{ url_for('auth.security') }}" class="btn btn-link">Cancel</a>
+        </form>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

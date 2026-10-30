@@ -1,0 +1,28 @@
+# Pure-Python stack: installs from wheels on Linux, macOS (Intel/Apple Silicon) and Windows,
+# including brand-new Python releases. Python 3.10+ required.
+#
+# Lower bounds only (no exact pins) so pip can pick a build for your interpreter.
+# For a reproducible production deploy, freeze: pip freeze > requirements.lock
+Flask>=3.0
+Werkzeug>=3.0
+Flask-SQLAlchemy>=3.1
+SQLAlchemy>=2.0
+Flask-Login>=0.6.3
+python-dotenv>=1.0
+# CSRF protection is built in (extensions.py) - no Flask-WTF needed.
+
+# --- brute-force protection: IP rate limiting (pure Python). Storage defaults to
+# memory://; add `redis` (requirements-optional.txt) and RATELIMIT_STORAGE_URI=redis://...
+# for multi-worker production.
+Flask-Limiter>=3.5
+
+# --- two-factor authentication
+# TOTP is implemented in auth/totp.py with the standard library (no pyotp needed).
+# QR codes are rendered as SVG -> pure Python, NO Pillow.
+qrcode>=7.4
+# Encrypts authenticator secrets at rest. Ships abi3 wheels for every OS; if it ever
+# fails to install, the app falls back to a stdlib cipher in dev/test (see auth/crypto.py).
+cryptography>=42.0
+
+# --- tests
+pytest>=8.0

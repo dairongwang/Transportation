@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% macro disable_form(method) -%}
+<div class="collapse mt-2" id="disable-{{ method }}">
+    <form method="post" action="{{ url_for('auth.disable_method', method=method) }}" class="row g-2 align-items-center">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-auto"><input type="password" name="current_password" class="form-control form-control-sm" placeholder="Confirm password" required autocomplete="current-password"></div>
+        <div class="col-auto"><button class="btn btn-sm btn-danger">Confirm disable</button></div>
+    </form>
+</div>
+{%- endmacro %}
+
+{% block title %}Security settings - ServiceUber{% endblock %}
+{% block content %}
+<h2>Security settings</h2>
+
+{% if not user.mfa_enabled %}
+<div class="alert alert-warning">
+    <strong>Two-factor authentication is off.</strong> Add a second factor so a stolen password alone can't access your account.
+</div>
+{% else %}
+<div class="alert alert-success">
+    Two-factor authentication is <strong>on</strong>. Default method at sign-in: <strong>{{ user.default_mfa_method|mfa_label }}</strong>.
+</div>
+{% endif %}
+
+<div class="row g-4">
+    <div class="col-lg-8">
+        <h4>Second factors</h4>
+        <div class="list-group mb-4">
+
+            {# ---- Authenticator app ---- #}
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h6 class="mb-1">Authenticator app <span class="badge bg-{{ 'success' if user.totp_enabled else 'secondary' }}">{{ 'On' if user.totp_enabled else 'Off' }}</span></h6>
+                        <p class="mb-1 small text-muted">Time-based codes from Google Authenticator, Authy, 1Password, Microsoft Authenticator, etc. Recommended.</p>
+                    </div>
+                    {% if user.totp_enabled %}
+                        <button class="btn btn-outline-danger btn-sm" data-bs-toggle="collapse" data-bs-target="#disable-totp">Disable</button>
+                    {% else %}
+                        <a class="btn btn-primary btn-sm" href="{{ url_for('auth.totp_setup') }}">Set up</a>
+                    {% endif %}
+                </div>
+                {% if user.totp_enabled %}{{ disable_form('totp') }}{% endif %}
+            </div>
+
+            {# ---- Email ---- #}
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h6 class="mb-1">E-mail codes <span class="badge bg-{{ 'success' if user.email_2fa_enabled else 'secondary' }}">{{ 'On' if user.email_2fa_enabled else 'Off' }}</span></h6>
+                        <p class="mb-1 small text-muted">A 6-digit code sent to <code>{{ user.email }}</code>{% if user.email_verified %} <span class="badge bg-light text-dark">verified</span>{% endif %}.</p>
+                    </div>
+                    {% if user.email_2fa_enabled %}
+                        <button class="btn btn-outline-danger btn-sm" data-bs-toggle="collapse" data-bs-target="#disable-email">Disable</button>
+                    {% else %}
+                        <a class="btn btn-primary btn-sm" href="{{ url_for('auth.email_setup') }}">Set up</a>
+                    {% endif %}
+                </div>
+                {% if user.email_2fa_enabled %}{{ disable_form('email') }}{% endif %}
+            </div>
+
+            {# ---- SMS ---- #}
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h6 class="mb-1">SMS codes <span class="badge bg-{{ 'success' if user.sms_2fa_enabled else 'secondary' }}">{{ 'On' if user.sms_2fa_enabled else 'Off' }}</span></h6>
+                        <p class="mb-1 small text-muted">
+                            A 6-digit code texted to {% if user.phone %}<code>••• {{ user.phone[-4:] }}</code>{% else %}your phone{% endif %}.
+                            SMS is weaker than an authenticator app (SIM-swap risk) — use it as a backup.
+                        </p>
+                    </div>
+                    {% if user.sms_2fa_enabled %}
+                        <button class="btn btn-outline-danger btn-sm" data-bs-toggle="collapse" data-bs-target="#disable-sms">Disable</button>
+                    {% else %}
+                        <a class="btn btn-primary btn-sm" href="{{ url_for('auth.sms_setup') }}">Set up</a>
+                    {% endif %}
+                </div>
+                {% if user.sms_2fa_enabled %}{{ disable_form('sms') }}{% endif %}
+            </div>
+        </div>
+
+        <h4>Connected accounts (social login)</h4>
+        {% if not user.password_is_usable %}
+        <div class="alert alert-info small py-2">This account was created with a social login and has no password. Use <em>Forgot password?</em> on the login page to set one (needed before the last social account can be unlinked).</div>
+        {% endif %}
+        {% set linked = user.oauth_accounts|map(attribute='provider')|list %}
+        <div class="list-group mb-3">
+            {% for acct in user.oauth_accounts %}
+            <div class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <strong>{{ oauth_label(acct.provider) }}</strong> <span class="badge bg-success">linked</span>
+                    <div class="small text-muted">{{ acct.email or 'no e-mail shared' }}{% if acct.display_name %} · {{ acct.display_name }}{% endif %} · last used {{ acct.last_login_at.strftime('%Y-%m-%d') if acct.last_login_at else '—' }}</div>
+                </div>
+                <form method="post" action="{{ url_for('auth.oauth_unlink', provider=acct.provider) }}" class="d-flex gap-1">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="password" name="current_password" class="form-control form-control-sm" placeholder="Password" autocomplete="current-password" {% if user.password_is_usable %}required{% endif %}>
+                    <button class="btn btn-sm btn-outline-danger">Unlink</button>
+                </form>
+            </div>
+            {% endfor %}
+            {% if not user.oauth_accounts %}<div class="list-group-item small text-muted">No social accounts linked.</div>{% endif %}
+        </div>
+        {% if oauth_providers()|reject('in', linked)|list %}
+        <div class="mb-4">{% with link = true %}{% include "auth/_oauth_buttons.html" %}{% endwith %}</div>
+        {% endif %}
+
+        {% if user.enabled_mfa_methods|length > 1 %}
+        <h5>Default method at sign-in</h5>
+        <form method="post" action="{{ url_for('auth.set_preferred_method') }}" class="row g-2 align-items-center mb-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-auto">
+                <select name="method" class="form-select form-select-sm">
+                    {% for m in user.enabled_mfa_methods %}
+                    <option value="{{ m }}" {% if m == user.default_mfa_method %}selected{% endif %}>{{ m|mfa_label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto"><button class="btn btn-sm btn-outline-primary">Save</button></div>
+        </form>
+        {% endif %}
+
+        {% if user.mfa_enabled %}
+        <h4>Recovery codes</h4>
+        <p class="small text-muted">You have <strong>{{ user.unused_recovery_code_count }}</strong> unused recovery codes. Use them if you lose access to your other methods. Generating new codes invalidates the old ones.</p>
+        <form method="post" action="{{ url_for('auth.regenerate_recovery_codes') }}" class="row g-2 align-items-center mb-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-auto"><input type="password" name="current_password" class="form-control form-control-sm" placeholder="Current password" required autocomplete="current-password"></div>
+            <div class="col-auto"><button class="btn btn-sm btn-outline-secondary">Generate new recovery codes</button></div>
+        </form>
+
+        <h4>Remembered devices</h4>
+        {% if devices %}
+        <div class="table-responsive"><table class="table table-sm small">
+            <thead><tr><th>Browser</th><th>IP</th><th>Added</th><th>Expires</th></tr></thead>
+            <tbody>
+            {% for d in devices %}
+            <tr><td>{{ d.user_agent[:60] }}</td><td>{{ d.ip_address }}</td><td>{{ d.created_at.strftime('%Y-%m-%d') }}</td><td>{{ d.expires_at.strftime('%Y-%m-%d') }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table></div>
+        <form method="post" action="{{ url_for('auth.revoke_devices') }}" class="mb-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-danger">Forget all devices</button>
+        </form>
+        {% else %}
+        <p class="small text-muted mb-4">No devices are remembered. Tick "Remember this device" when entering a code to skip 2FA on that browser for {{ config.TRUSTED_DEVICE_DAYS }} days.</p>
+        {% endif %}
+        {% endif %}
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-body">
+                <h6>Account</h6>
+                <p class="small mb-1"><strong>Username:</strong> {{ user.username }}</p>
+                <p class="small mb-1"><strong>E-mail:</strong> {{ user.email }}</p>
+                <p class="small mb-1"><strong>Last login:</strong> {{ user.last_login_at.strftime('%Y-%m-%d %H:%M UTC') if user.last_login_at else '—' }}</p>
+                <p class="small mb-3"><strong>Password changed:</strong> {{ user.password_changed_at.strftime('%Y-%m-%d') if user.password_changed_at else '—' }}</p>
+                <a href="{{ url_for('auth.change_password') }}" class="btn btn-sm btn-outline-secondary">Change password</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

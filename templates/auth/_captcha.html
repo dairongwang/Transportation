@@ -1,0 +1,14 @@
+{# Included by auth forms when a CAPTCHA is required. `c` = captcha_challenge() #}
+{% set c = captcha_challenge() %}
+{% if c.provider == 'dummy' %}
+<div class="mb-3 p-3 border rounded bg-light">
+    <label class="form-label mb-1" for="captcha_answer">Security check <span class="badge bg-warning text-dark">dummy CAPTCHA</span></label>
+    <div class="small text-muted mb-2">{{ c.question }}</div>
+    <input type="text" id="captcha_answer" name="captcha_answer" class="form-control" inputmode="numeric" required autocomplete="off" placeholder="Answer">
+</div>
+{% elif c.provider in ('turnstile', 'hcaptcha', 'recaptcha') %}
+<div class="mb-3">
+    <div class="{{ c.widget_class }}" data-sitekey="{{ c.site_key }}"></div>
+    <script src="{{ c.script_url }}" async defer></script>
+</div>
+{% endif %}

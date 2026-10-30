@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Too many requests - ServiceUber{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6 text-center">
+        <h2>Slow down</h2>
+        <p>Too many requests from your network. Please wait {% if retry_after %}about {{ retry_after }} seconds{% else %}a minute{% endif %} and try again.</p>
+        <a href="{{ url_for('index') }}" class="btn btn-outline-primary">Home</a>
+    </div>
+</div>
+{% endblock %}

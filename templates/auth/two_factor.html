@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Two-factor verification - ServiceUber{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-5">
+        <h2>Verify it's you</h2>
+        {% if purpose == 'password_reset' %}
+        <p class="text-muted">Resetting the password for <strong>{{ user.username }}</strong>. Confirm with your second factor to continue.</p>
+        {% else %}
+        <p class="text-muted">Signing in as <strong>{{ user.username }}</strong>. Complete the second step to continue.</p>
+        {% endif %}
+
+        <ul class="nav nav-pills mb-3 small">
+            {% for m in methods %}
+            <li class="nav-item">
+                <a class="nav-link {% if method == m %}active{% endif %}" href="{{ url_for(endpoint, method=m) }}">{{ m|mfa_label }}</a>
+            </li>
+            {% endfor %}
+            {% if has_recovery %}
+            <li class="nav-item">
+                <a class="nav-link {% if method == 'recovery' %}active{% endif %}" href="{{ url_for(endpoint, method='recovery') }}">Recovery code</a>
+            </li>
+            {% endif %}
+        </ul>
+
+        {% if method in ('email', 'sms') %}
+        <form method="post" class="mb-3">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="method" value="{{ method }}">
+            <input type="hidden" name="action" value="send">
+            <p>
+                {% if method == 'email' %}
+                    We'll e-mail a 6-digit code to <strong>{{ user.email }}</strong>.
+                {% else %}
+                    We'll text a 6-digit code to <strong>{{ '••• ' ~ user.phone[-4:] if user.phone else '' }}</strong>.
+                {% endif %}
+            </p>
+            <button type="submit" class="btn btn-outline-primary btn-sm">Send code</button>
+        </form>
+        {% with channel = method %}{% include "auth/_stub_notice.html" %}{% endwith %}
+        {% endif %}
+
+        <form method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="method" value="{{ method }}">
+            <input type="hidden" name="action" value="verify">
+            <div class="mb-3">
+                {% if method == 'totp' %}
+                    <label class="form-label" for="code">Enter the 6-digit code from your authenticator app</label>
+                    <input type="text" id="code" name="code" class="form-control code-input" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" required autocomplete="one-time-code" autofocus>
+                {% elif method == 'recovery' %}
+                    <label class="form-label" for="code">Enter one of your recovery codes</label>
+                    <input type="text" id="code" name="code" class="form-control code-input" placeholder="xxxx-xxxx-xxxx" required autocomplete="off" autofocus>
+                    <div class="form-text">Each recovery code can be used only once.</div>
+                {% else %}
+                    <label class="form-label" for="code">Enter the 6-digit code we sent you</label>
+                    <input type="text" id="code" name="code" class="form-control code-input" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" required autocomplete="one-time-code" autofocus>
+                {% endif %}
+            </div>
+            {% if purpose == 'login' %}
+            <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" name="remember_device" id="remember_device">
+                <label class="form-check-label" for="remember_device">Remember this device for {{ config.TRUSTED_DEVICE_DAYS }} days</label>
+            </div>
+            {% endif %}
+            <button type="submit" class="btn btn-primary">Verify</button>
+            <a href="{{ url_for('auth.login') }}" class="btn btn-link">Cancel</a>
+        </form>
+    </div>
+</div>
+{% endblock %}

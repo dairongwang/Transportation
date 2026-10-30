@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Fake Apple form_post (dev) - ServiceUber{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6 text-center">
+        <p class="text-muted small">Apple returns the result with <code>response_mode=form_post</code> — a cross-site POST to the app. Submitting…</p>
+        <form method="post" action="{{ action }}" id="autosubmit">
+            <input type="hidden" name="code" value="{{ code }}">
+            <input type="hidden" name="state" value="{{ state }}">
+            {% if user_json %}<input type="hidden" name="user" value='{{ user_json }}'>{% endif %}
+            <button class="btn btn-primary">Continue to the app</button>
+        </form>
+    </div>
+</div>
+<script src="{{ url_for('static', filename='autosubmit.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,22 @@
+{# Social login buttons. `link` = true renders "Link" buttons for the security page. #}
+{% set providers = oauth_providers() %}
+{% if providers %}
+<div class="oauth-buttons {{ 'mt-3' if not link else '' }}">
+    {% if not link %}<div class="text-center text-muted small mb-2">— or continue with —</div>{% endif %}
+    <div class="d-grid gap-2">
+    {% for p in providers if not (link and p in (linked or [])) %}
+        <a class="btn btn-outline-dark oauth-btn oauth-{{ p }}" href="{{ url_for('auth.oauth_start', provider=p, link='1' if link else None, next=request.args.get('next')) }}">
+            {% if p == 'google' %}<span class="oauth-icon">G</span>{% elif p == 'apple' %}<span class="oauth-icon"></span>{% else %}<span class="oauth-icon">f</span>{% endif %}
+            {{ 'Link' if link else 'Continue with' }} {{ oauth_label(p) }}
+        </a>
+    {% endfor %}
+    </div>
+    {% if oauth_is_fake() %}
+    <div class="alert alert-warning small py-2 mt-2 mb-0">
+        <strong>TEST MODE:</strong> these buttons use the app's <em>fake</em> identity provider (no real Google/Apple/Facebook
+        account is contacted). You'll see a consent page where you pick the test identity.
+        {% if config.ENABLE_DEV_TOOLS %}<a class="alert-link" href="{{ url_for('auth.oauth_providers_page') }}">Details</a>{% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endif %}

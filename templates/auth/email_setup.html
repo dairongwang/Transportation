@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Set up e-mail codes - ServiceUber{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <h2>Set up e-mail codes</h2>
+        <p>We'll verify that you control <strong>{{ current_user.email }}</strong> by sending a one-time code.</p>
+
+        <form method="post" class="mb-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="send">
+            <button type="submit" class="btn btn-outline-primary">Send code to my e-mail</button>
+        </form>
+        {% with channel = 'email' %}{% include "auth/_stub_notice.html" %}{% endwith %}
+
+        <form method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="verify">
+            <div class="mb-3">
+                <label class="form-label" for="code">6-digit code from the e-mail</label>
+                <input type="text" id="code" name="code" class="form-control code-input" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" required autocomplete="one-time-code">
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="current_password">Confirm your password</label>
+                <input type="password" id="current_password" name="current_password" class="form-control" required autocomplete="current-password">
+            </div>
+            <button type="submit" class="btn btn-primary">Enable e-mail codes</button>
+            <a href="{{ url_for('auth.security') }}" class="btn btn-link">Cancel</a>
+        </form>
+    </div>
+</div>
+{% endblock %}

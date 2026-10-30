@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Social login providers - ServiceUber{% endblock %}
+{% block content %}
+<h2>Social login (OAuth 2.0)</h2>
+<p>Mode: {% if fake %}<span class="badge bg-warning text-dark">FAKE identity provider (stub)</span> — no real accounts are contacted; the consent page lets you pick the identity.{% else %}<span class="badge bg-success">real providers</span>{% endif %}</p>
+<div class="table-responsive"><table class="table table-sm small">
+    <thead><tr><th>Provider</th><th>Client / App ID</th><th>Redirect URI to register at the provider</th><th></th></tr></thead>
+    <tbody>
+    {% for p in providers %}
+    <tr><td>{{ oauth_label(p) }}</td><td><code>{{ client_ids[p] }}</code></td><td><code>{{ redirect_uris[p] }}</code></td>
+        <td><a class="btn btn-sm btn-outline-dark" href="{{ url_for('auth.oauth_start', provider=p) }}">Try</a></td></tr>
+    {% endfor %}
+    </tbody>
+</table></div>
+<p class="small text-muted">Apple's client secret is an ES256 JWT signed with your .p8 key — requires the <code>cryptography</code> package ({{ 'installed' if cryptography else 'NOT installed' }}). Google and Facebook need only the standard library.</p>
+{% endblock %}

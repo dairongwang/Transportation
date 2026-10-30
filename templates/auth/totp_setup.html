@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Set up authenticator app - ServiceUber{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-7">
+        <h2>Set up authenticator app</h2>
+        <ol>
+            <li class="mb-3">Install an authenticator app (Google Authenticator, Authy, Microsoft Authenticator, 1Password, Bitwarden…).</li>
+            <li class="mb-3">
+                Add the account to the app:
+                {% if qr_data_uri %}
+                <div class="my-2"><img src="{{ qr_data_uri }}" alt="QR code for authenticator app" width="220" height="220" class="border bg-white"></div>
+                <p class="small text-muted mb-1">Scan the QR code with your phone, or —</p>
+                {% endif %}
+                <p class="mb-1"><a href="{{ otpauth_uri }}" class="btn btn-sm btn-outline-secondary">Open in authenticator app on this device</a>
+                   <span class="small text-muted">(works when you're doing this on your phone/tablet)</span></p>
+                <details>
+                    <summary class="small">Enter the key manually (any platform, or use <code>scripts/fake_authenticator.py</code> for testing)</summary>
+                    <p class="manual-key mt-2">{{ manual_key }}</p>
+                    <p class="small text-muted">Type: time-based (TOTP) · Digits: 6 · Period: 30s · Algorithm: SHA1</p>
+                </details>
+            </li>
+            <li>
+                Enter the 6-digit code shown in the app to confirm:
+                <form method="post" class="mt-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <input type="text" name="code" class="form-control code-input" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" required autocomplete="one-time-code" autofocus>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="current_password">Confirm your password</label>
+                        <input type="password" id="current_password" name="current_password" class="form-control" required autocomplete="current-password">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Enable authenticator app</button>
+                    <a href="{{ url_for('auth.security') }}" class="btn btn-link">Cancel</a>
+                </form>
+            </li>
+        </ol>
+    </div>
+</div>
+{% endblock %}

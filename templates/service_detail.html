@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ service.title }} - ServiceUber{% endblock %}
+{% block content %}
+<div class="card">
+    <div class="card-body">
+        <span class="badge bg-secondary">{{ service.category }}</span>
+        <h2 class="mt-2">{{ service.title }}</h2>
+        <p>{{ service.description }}</p>
+        <p><strong>Price:</strong> ${{ "%.2f"|format(service.price) }}</p>
+        <p><strong>Location:</strong> {{ service.location }}</p>
+        <p><strong>Seller:</strong> {{ service.seller.username }}</p>
+
+        {% if current_user.is_authenticated %}
+            {% if current_user.id != service.seller_id %}
+            <form method="post" action="{{ url_for('book_service', service_id=service.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-primary btn-lg">Book Now (Dummy Payment)</button>
+            </form>
+            <p class="text-muted mt-2">A dummy payment token will be generated. No real charge.</p>
+            {% else %}
+            <p class="text-info">This is your service.</p>
+            {% endif %}
+        {% else %}
+            <p><a href="{{ url_for('auth.login') }}">Login</a> to book this service.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

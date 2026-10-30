@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}ServiceUber - Find Services{% endblock %}
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h1>Find & Book Services</h1>
+        <p class="lead">Like Uber, but for any service — rides, deliveries, cleaning, tutoring, and more.</p>
+    </div>
+    <div class="col-md-4">
+        <form action="{{ url_for('search') }}" method="get" class="d-flex">
+            <input class="form-control me-2" type="search" name="q" placeholder="Search services..." value="{{ search_q or '' }}">
+            <button class="btn btn-primary" type="submit">Search</button>
+        </form>
+    </div>
+</div>
+
+<div class="row">
+    {% for service in services %}
+    <div class="col-md-4 mb-4">
+        <div class="card service-card h-100">
+            <div class="card-body">
+                <span class="badge bg-secondary badge-category">{{ service.category }}</span>
+                <h5 class="card-title mt-2">{{ service.title }}</h5>
+                <p class="card-text">{{ service.description[:100] }}{% if service.description|length > 100 %}...{% endif %}</p>
+                <p class="mb-1"><strong>${{ "%.2f"|format(service.price) }}</strong></p>
+                <p class="text-muted small">📍 {{ service.location }}</p>
+                <a href="{{ url_for('service_detail', service_id=service.id) }}" class="btn btn-outline-primary btn-sm">View & Book</a>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <p>No services available yet. Be the first to post one!</p>
+    {% endfor %}
+</div>
+{% endblock %}
