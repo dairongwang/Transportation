@@ -149,6 +149,10 @@ def oauth_callback(provider):
     )
     user.set_unusable_password()
     db.session.add(user)
+    db.session.flush()
+    from background import live  # managers' Users tab updates live
+
+    live.push_admin("user_registered", user)
     db.session.commit()
     _link(user, profile)
     record("oauth_signup", user.id, provider)

@@ -21,7 +21,7 @@
             <small class="text-muted">{{ m.sent_at[:19].replace('T', ' ') }} UTC</small>
         </div>
         {% if m.channel == 'email' %}<div class="small text-muted">{{ m.subject }}</div>{% endif %}
-        <pre class="mb-0 mt-1" style="white-space: pre-wrap">{{ m.body }}</pre>
+        <pre class="mb-0 mt-1 pre-wrap">{{ m.body }}</pre>
     </div>
     {% endfor %}
 </div>

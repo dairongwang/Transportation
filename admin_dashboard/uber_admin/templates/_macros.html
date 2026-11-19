@@ -1,0 +1,60 @@
+{% set STATUS_BADGE = {'clear': 'success', 'pending': 'info', 'consider': 'warning text-dark', 'unverified': 'secondary',
+                       'rejected': 'danger', 'rechecking': 'info', 'under_review': 'warning text-dark', 'approved': 'success',
+                       'disputed': 'info', 'expired': 'secondary', 'not_started': 'secondary', 'not_required': 'secondary',
+                       'succeeded': 'success', 'paid': 'success', 'cash': 'success', 'completed': 'success', 'failed': 'danger',
+                       'held': 'warning text-dark', 'captured': 'secondary', 'released': 'secondary', 'voided': 'secondary',
+                       'cancelled': 'secondary', 'accepted': 'info', 'in_progress': 'info'} %}
+
+{% macro badge(status) -%}
+<span class="badge bg-{{ STATUS_BADGE.get(status, 'secondary') }}">{{ status.replace('_', ' ') }}</span>
+{%- endmacro %}
+
+{% macro check_card(c, title) -%}
+<div class="card h-100">
+    <div class="card-header d-flex justify-content-between"><span>{{ title }} · report #{{ c.id }}</span>
+        <span>{{ badge(c.status) }}{% if c.held_for_review %} <span class="badge bg-info">held for dispute</span>{% endif %}{% if c.expired %} <span class="badge bg-secondary">expired</span>{% endif %}</span></div>
+    <div class="card-body small">
+        <p class="mb-1"><strong>{{ c.legal_name }}</strong> · {{ c.package }} package{% if c.licence %} · licence {{ c.licence }}{% endif %}</p>
+        <p class="mb-2 text-muted"><code>{{ c.provider_ref }}</code> · submitted {{ c.submitted_at|dt }} · completed {{ c.completed_at|dt }}
+            {% if c.expires_at %} · valid until {{ c.expires_at|dt }}{% endif %}</p>
+        <ul class="screen-list">
+            {% for k, v in c.screens.items() %}<li>{{ k.replace('_', ' ') }}: {{ badge(v) }}</li>{% endfor %}
+        </ul>
+        {% if c.result_note %}<p class="mt-2 mb-0"><em>{{ c.result_note }}</em></p>{% endif %}
+        {% if c.adjudicated_by %}<p class="mb-0 text-muted">Decided by <strong>{{ c.adjudicated_by }}</strong> on {{ c.adjudicated_at|dt }}</p>{% endif %}
+    </div>
+</div>
+{%- endmacro %}
+
+{% macro decision_form(action, allowed, what) -%}
+{% if allowed %}
+{% if g.admin.can_decide %}
+<form method="post" action="{{ action }}" class="card card-body mt-3" id="decision-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <h5>Decide {{ what }}</h5>
+    <label class="form-label" for="note">Note <span class="text-muted small">(required to reject - the user sees it)</span></label>
+    <textarea id="note" name="note" class="form-control mb-2" rows="3" maxlength="500"></textarea>
+    <div class="d-flex gap-2">
+        {% if 'approve' in allowed %}<button class="btn btn-success" name="decision" value="approve">✓ Approve</button>{% endif %}
+        {% if 'reject' in allowed %}<button class="btn btn-danger" name="decision" value="reject">✗ Reject</button>{% endif %}
+    </div>
+</form>
+{% else %}
+<div class="alert alert-secondary mt-3 small">You are signed in as a <strong>viewer</strong> (read-only). A manager decides {{ what }}.</div>
+{% endif %}
+{% endif %}
+{%- endmacro %}
+
+
+{# Sub-tabs of the "Background checks" tab. Inside a live region: the counters update by themselves. #}
+{% macro bgc_tabs(sub, summary) -%}
+<div data-live="bgc-tabs">
+<ul class="nav nav-tabs mb-3" id="bgc-tabs">
+    <li class="nav-item"><a class="nav-link {% if sub == 'overview' %}active{% endif %}" href="{{ url_for('views.bgc_overview') }}">Overview</a></li>
+    <li class="nav-item"><a class="nav-link {% if sub == 'reports' %}active{% endif %}" href="{{ url_for('views.reviews') }}">Reports
+        {% if summary and summary.needs_review %}<span class="badge bg-warning text-dark" title="reports to review">{{ summary.needs_review }}</span>{% endif %}</a></li>
+    <li class="nav-item"><a class="nav-link {% if sub == 'disputes' %}active{% endif %}" href="{{ url_for('views.disputes') }}">Disputes
+        {% if summary and summary.disputes_to_decide %}<span class="badge bg-danger" title="disputes to decide">{{ summary.disputes_to_decide }}</span>{% endif %}</a></li>
+</ul>
+</div>
+{%- endmacro %}

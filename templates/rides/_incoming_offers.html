@@ -1,0 +1,34 @@
+{# Pending ride requests for the logged-in driver, with Accept / Decline.
+   Rendered on the dashboard + Drive page and re-sent by GET /api/drivers/me/offers (polled by static/incoming.js).
+   Expects: offers (list[RideOffer]), next_page ('dashboard' | 'drive'). #}
+{% if offers %}
+<div class="table-responsive"><table class="table table-sm align-middle mb-2">
+    <thead><tr><th>Ride</th><th>Rider</th><th>Pickup → Drop-off</th><th>To pickup</th><th>Fare</th><th>Answer within</th><th></th></tr></thead>
+    <tbody>
+    {% for o in offers %}
+    <tr class="table-warning incoming-offer" data-offer-id="{{ o.id }}" data-expires="{{ o.expires_at.isoformat() if o.expires_at else '' }}">
+        <td><a href="{{ url_for('rides.ride_detail', ride_id=o.ride.id) }}">#{{ o.ride.id }}</a><br><small class="text-muted">you are #{{ o.rank }}</small>
+            <br><a class="small text-nowrap" href="{{ url_for('rides.ride_detail', ride_id=o.ride.id, _anchor='ride-chat') }}" title="The rider ordered you - chat about where to meet">💬 Chat <span class="badge bg-danger chat-unread" data-chat-unread-ride="{{ o.ride.id }}">{{ chat_unread(o.ride) or '' }}</span></a></td>
+        <td>{{ o.ride.rider.username }}</td>
+        <td>{{ place(o.ride.pickup_address, o.ride.pickup_lat, o.ride.pickup_lng) }} → {{ place(o.ride.dropoff_address, o.ride.dropoff_lat, o.ride.dropoff_lng) }}
+            <br><small class="text-muted">{{ "%.1f"|format(o.ride.trip_distance_km) }} km trip · ~{{ "%.0f"|format(o.ride.trip_duration_min) }} min · {{ 'card' if o.ride.payment_method else 'cash' }}</small></td>
+        <td>{{ "%.1f"|format(o.distance_km) }} km<br><small class="text-muted">~{{ "%.0f"|format(o.eta_min) }} min</small></td>
+        <td><strong>${{ "%.2f"|format(o.price) }}</strong></td>
+        <td><span class="countdown" data-expires="{{ o.expires_at.isoformat() if o.expires_at else '' }}">{{ o.expires_at.strftime('%H:%M:%S') if o.expires_at else '—' }} UTC</span></td>
+        <td class="text-nowrap">
+            <form method="post" action="{{ url_for('rides.respond_offer', offer_id=o.id, action='accept') }}" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="next" value="{{ next_page }}">
+                <button class="btn btn-sm btn-success">✓ Accept</button>
+            </form>
+            <form method="post" action="{{ url_for('rides.respond_offer', offer_id=o.id, action='decline') }}" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="next" value="{{ next_page }}">
+                <button class="btn btn-sm btn-outline-danger">✗ Decline</button>
+            </form>
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table></div>
+{% else %}
+<p class="text-muted mb-2 small" id="no-offers">No ride requests right now. New requests from riders who selected you appear here automatically.</p>
+{% endif %}

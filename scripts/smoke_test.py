@@ -1,300 +1,246 @@
 #!/usr/bin/env python3
 """
-End-to-end smoke test against a RUNNING server — standard library only.
+Live end-to-end smoke test against a RUNNING ServiceUber (dev tools on, the default .env).
 
-Exercises registration, login, all three 2FA methods, recovery codes and trusted
-devices exactly as a browser would (cookies, CSRF tokens, redirects). Codes are read
-from the app's fake inbox (/dev/outbox.json), so the server must run with
-ENABLE_DEV_TOOLS=true and the console/memory (or fake smtp/twilio) backends.
+    python app.py                              # terminal 1 (or ./run.sh)
+    python scripts/smoke_test.py               # terminal 2  -> exit 0 when everything works
+    python scripts/smoke_test.py --base http://192.168.1.20:5000
 
-    python scripts/smoke_test.py                       # against http://127.0.0.1:5000
-    python scripts/smoke_test.py http://192.168.1.20:5000   # e.g. from another machine
+Standard library only (urllib), so it runs from any machine that can reach the server.
+It never depends on the demo accounts' state: every run registers a FRESH DUMMY account
+(dummy_smoke_<random>, an example.com e-mail, a public dummy password, a fictional identity
+with a fake driving licence number). No card numbers and no phone numbers are used.
 
-Exit code 0 = all steps passed.
+Steps (every HTTP status is checked):
+   1. /healthz and the public pages
+   2. register -> log in (answers the offline dummy CAPTCHA if one is asked)
+   3. background check with the fake provider (driver package) -> passed
+   4. request a ride (auto-dispatch, cash) -> a demo driver bot is asked
+   5. CHAT: the room is open as soon as the order is placed; send a message; the bot replies;
+      share a location; a live push arrives on /events/account (Server-Sent Events)
+   6. the bot accepts / picks up / completes (dev simulator) -> the chat closes, sending is refused
+   7. log out
 """
 
 from __future__ import annotations
 
+import argparse
 import http.cookiejar
 import json
 import re
 import secrets
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _totp_loader import load_totp  # noqa: E402
-
-totp = load_totp()
-
-BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:5000").rstrip("/")
-PASSWORD = "SmokeTest-Passw0rd!"
-jar = http.cookiejar.CookieJar()
-opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-passed = failed = 0
+PASSWORD = "dummySmokePass123"  # DUMMY PASSWORD (public placeholder)
 
 
-_last_totp_step = 0
+class SmokeFailure(Exception):
+    pass
 
 
-def fresh_totp(key: str, after_setup: bool = False) -> str:
-    """
-    Next authenticator code the server will accept: never reuse a time step (replay
-    protection) and stay inside the +/-1 step drift window - sleeping to the next 30s
-    boundary when necessary, like a person waiting for the code to roll over.
-    """
-    global _last_totp_step
-    if after_setup:  # the server records the *current* step at setup time
-        _last_totp_step = totp.counter_for()
-    while True:
-        now_step = totp.counter_for()
-        candidate = max(_last_totp_step + 1, now_step)
-        if candidate <= now_step + 1:
-            _last_totp_step = candidate
-            return totp.hotp(key, candidate)
-        wait = 30 - int(time.time()) % 30 + 0.5
-        print(f"      (waiting {wait:.0f}s for the next authenticator code)", flush=True)
-        time.sleep(wait)
+class Client:
+    def __init__(self, base: str) -> None:
+        self.base = base.rstrip("/")
+        self.jar = http.cookiejar.CookieJar()
+        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar))
+        self.csrf: str | None = None
+
+    def request(self, method: str, path: str, *, form: dict | None = None, js: dict | None = None,
+                expect: int | tuple[int, ...] = 200) -> tuple[int, str, str]:
+        headers = {"Accept": "application/json" if js is not None or path.startswith("/api/") else "text/html"}
+        data = None
+        if js is not None:
+            data = json.dumps(js).encode()
+            headers["Content-Type"] = "application/json"
+        elif form is not None:
+            form = dict(form)
+            if self.csrf:
+                form.setdefault("csrf_token", self.csrf)
+            data = urllib.parse.urlencode(form).encode()
+        if method == "POST" and self.csrf:
+            headers["X-CSRF-Token"] = self.csrf
+        req = urllib.request.Request(self.base + path, data=data, method=method, headers=headers)
+        try:
+            with self.opener.open(req, timeout=20) as resp:
+                code, body, url = resp.getcode(), resp.read().decode("utf-8", "replace"), resp.geturl()
+        except urllib.error.HTTPError as exc:
+            code, body, url = exc.code, exc.read().decode("utf-8", "replace"), exc.geturl()
+        m = re.search(r'name="csrf_token" value="([^"]+)"', body)
+        if m:
+            self.csrf = m.group(1)
+        ok = (expect,) if isinstance(expect, int) else expect
+        if code not in ok:
+            flashes = re.findall(r'role="alert">\s*([^<]+)', body)
+            raise SmokeFailure(f"{method} {path} -> HTTP {code} (expected {ok}) {flashes[:2] or body[:200]}")
+        return code, body, url
+
+    def get(self, path: str, **kw):
+        return self.request("GET", path, **kw)
+
+    def post(self, path: str, **kw):
+        return self.request("POST", path, **kw)
+
+    def json(self, method: str, path: str, payload: dict | None = None, expect=200) -> dict:
+        _, body, _ = self.request(method, path, js=payload if method == "POST" else None, expect=expect)
+        return json.loads(body)
 
 
-class Page:
-    def __init__(self, url: str, status: int, body: str):
-        self.url, self.status, self.body = url, status, body
-
-    @property
-    def csrf(self) -> str:
-        m = re.search(r'name="csrf_token" value="([^"]+)"', self.body)
-        return m.group(1) if m else ""
-
-    @property
-    def alerts(self) -> list[str]:
-        return [re.sub(r"\s+", " ", a).strip() for a in re.findall(r'role="alert">\s*(.*?)\s*<button', self.body, re.S)]
+def captcha_answer(html: str) -> dict:
+    m = re.search(r"What is (\d+) \+ (\d+)\?", html)
+    return {"captcha_answer": str(int(m.group(1)) + int(m.group(2)))} if m else {}
 
 
-def get(path: str) -> Page:
-    try:
-        with opener.open(BASE + path, timeout=15) as r:
-            return Page(r.geturl(), r.status, r.read().decode("utf-8", "replace"))
-    except urllib.error.HTTPError as e:
-        return Page(e.geturl(), e.code, e.read().decode("utf-8", "replace"))
+def run(base: str, verbose: bool = True) -> None:
+    step = 0
 
+    def ok(msg: str) -> None:
+        nonlocal step
+        step += 1
+        if verbose:
+            print(f" ✓ {step:2d}. {msg}")
 
-def solve_dummy_captcha(page: Page | None) -> str | None:
-    """The dev 'dummy' CAPTCHA asks 'What is a + b?' - answer it like a human tester would."""
-    if page is None:
-        return None
-    m = re.search(r"What is (\d+) \+ (\d+)\?", page.body)
-    return str(int(m.group(1)) + int(m.group(2))) if m else None
+    c = Client(base)
+    # ---------------------------------------------------------------- 1. server up
+    health = c.json("GET", "/healthz")
+    if health.get("status") != "ok":
+        raise SmokeFailure(f"/healthz: {health}")
+    for path in ("/", "/login", "/register", "/search?q=ride"):
+        c.get(path)
+    ok(f"server healthy ({health.get('platform')}), public pages render")
 
+    # ---------------------------------------------------------------- 2. register + log in
+    tag = secrets.token_hex(3)
+    user = f"dummy_smoke_{tag}"
+    _, page, _ = c.get("/register")
+    _, page, url = c.post("/register", form={"username": user, "email": f"dummy.smoke.{tag}@example.com",
+                                             "password": PASSWORD, "role": "both", **captcha_answer(page)})
+    if not url.rstrip("/").endswith("/login"):
+        raise SmokeFailure(f"registration did not redirect to /login: {url}")
+    _, page, _ = c.get("/login")
+    _, page, url = c.post("/login", form={"username": user, "password": PASSWORD, **captcha_answer(page)})
+    if "/background-check" not in url and "/dashboard" not in url:
+        raise SmokeFailure(f"login landed on {url}")
+    ok(f"registered and logged in as {user}")
 
-def post(path: str, data: dict, csrf_from: Page | None = None) -> Page:
-    data = dict(data)
-    if csrf_from is not None and csrf_from.csrf:
-        data["csrf_token"] = csrf_from.csrf
-    answer = solve_dummy_captcha(csrf_from)
-    if answer is not None and "captcha_answer" not in data:
-        data["captcha_answer"] = answer
-    req = urllib.request.Request(BASE + path, data=urllib.parse.urlencode(data).encode())
-    try:
-        with opener.open(req, timeout=15) as r:
-            return Page(r.geturl(), r.status, r.read().decode("utf-8", "replace"))
-    except urllib.error.HTTPError as e:
-        return Page(e.geturl(), e.code, e.read().decode("utf-8", "replace"))
+    # ---------------------------------------------------------------- 3. background check
+    c.get("/background-check")
+    _, _, url = c.post("/background-check", form={
+        # legal names are letters only: hex tag -> letters a..p
+        "legal_first_name": "Dummy", "legal_last_name": "Smoke " + "".join(chr(97 + int(ch, 16)) for ch in tag).title(),
+        "date_of_birth": "1990-01-01",
+        "licence_number": f"DUMMY-{tag.upper()}", "licence_region": "Demo State", "consent": "on"})
+    state = c.json("GET", "/api/background-check")
+    if not state.get("passed"):
+        raise SmokeFailure(f"background check did not pass: {state}")
+    ok("background check passed (fake provider, driver package)")
 
+    # ---------------------------------------------------------------- 4. ride + order
+    # put the demo fleet online with fresh positions (they go stale after DRIVER_LOCATION_STALE_SECONDS)
+    c.post("/dev/rides/simulate", form={"action": "shuffle"})
+    ride = c.json("POST", "/api/rides", {"pickup": "Downtown", "dropoff": "Airport", "auto_dispatch": True,
+                                         "payment_method_id": None}, expect=201)
+    if ride["status"] != "offered":
+        raise SmokeFailure(f"ride #{ride['id']} was not dispatched: {ride['status']}")
+    rid = ride["id"]
+    asked = next(o["driver"]["username"] for o in ride["offers"] if o["status"] == "pending")
+    ok(f"ride #{rid} requested, order placed with {asked}")
 
-def latest_message(channel: str, to: str, pattern: str) -> str:
-    for _ in range(10):
-        with opener.open(BASE + "/dev/outbox.json", timeout=15) as r:
-            for m in json.load(r):
-                if m["channel"] == channel and m["to"] == to:
-                    found = re.search(pattern, m["body"])
-                    if found:
-                        return found.group(1)
-        time.sleep(0.5)
-    raise AssertionError(f"no {channel} message for {to} matching {pattern!r} in /dev/outbox.json")
+    # ---------------------------------------------------------------- 5. chat
+    chat = c.json("GET", f"/api/rides/{rid}/chat")
+    if not (chat["chat"] and chat["chat"]["open"]):
+        raise SmokeFailure(f"no open chat right after the order: {chat}")
+    c.get(f"/rides/{rid}")  # page with the chat panel (also refreshes the CSRF token)
 
+    pushed: list[dict] = []
+    listening = threading.Event()
 
-def latest_code(channel: str, to: str) -> str:
-    return latest_message(channel, to, r"\b(\d{6})\b")
+    def listen() -> None:  # what the browser's EventSource does
+        req = urllib.request.Request(c.base + "/events/account", headers={"Accept": "text/event-stream"})
+        try:
+            with c.opener.open(req, timeout=15) as resp:
+                event = None
+                for raw in resp:
+                    line = raw.decode().rstrip("\n")
+                    if line.startswith("event:"):
+                        event = line[6:].strip()
+                        if event == "hello":
+                            listening.set()
+                    elif line.startswith("data:") and event == "chat":
+                        pushed.append(json.loads(line[5:]))
+                        if len(pushed) >= 2:
+                            return
+        except OSError:
+            pass
 
+    t = threading.Thread(target=listen, daemon=True)
+    t.start()
+    if not listening.wait(10):
+        raise SmokeFailure("could not subscribe to /events/account")
+    sent = c.json("POST", f"/api/rides/{rid}/chat", {"body": "Hi! Where exactly are you?"}, expect=201)
+    t.join(10)
+    if not any(p["message"]["id"] == sent["message"]["id"] and p["message"]["mine"] for p in pushed):
+        raise SmokeFailure(f"own message was not pushed live: {pushed}")
+    messages = c.json("GET", f"/api/rides/{rid}/chat")["messages"]
+    reply = messages[-1]
+    if reply["sender_role"] != "driver":
+        raise SmokeFailure(f"the demo driver did not reply: {messages[-2:]}")
+    loc = c.json("POST", f"/api/rides/{rid}/chat", {"lat": 40.0081, "lng": -74.9921, "body": "I'm here"}, expect=201)
+    if not loc["message"]["location"]:
+        raise SmokeFailure(f"location message without a location: {loc}")
+    ok(f"chat open on order; message pushed live over SSE; {reply['sender']} replied: “{reply['body'][:50]}”")
 
-def step(name: str, ok: bool, detail="") -> None:
-    global passed, failed
-    passed += ok
-    failed += not ok
-    print(f"{'PASS' if ok else 'FAIL'}  {name}" + (f"  ({detail})" if detail else ""), flush=True)
+    # ---------------------------------------------------------------- 6. ride happens -> chat closes
+    for _ in range(12):  # bots accept with their acceptance rate; auto-dispatch moves on if they decline
+        status = c.json("GET", f"/api/rides/{rid}")["status"]
+        if status != "offered":
+            break
+        c.post("/dev/rides/simulate", form={"action": "respond", "ride_id": rid})
+    if status == "no_drivers":
+        raise SmokeFailure("every demo driver declined - run again")
+    if status != "accepted":
+        raise SmokeFailure(f"ride not accepted: {status}")
+    c.post("/dev/rides/simulate", form={"action": "advance", "ride_id": rid})
+    c.post("/dev/rides/simulate", form={"action": "advance", "ride_id": rid})
+    status = c.json("GET", f"/api/rides/{rid}")["status"]
+    if status != "completed":
+        raise SmokeFailure(f"ride not completed: {status}")
+    chat = c.json("GET", f"/api/rides/{rid}/chat")
+    if chat["chat"]["open"]:
+        raise SmokeFailure("chat still open after the ride completed")
+    c.json("POST", f"/api/rides/{rid}/chat", {"body": "still there?"}, expect=409)
+    c.post(f"/rides/{rid}/rate", form={"stars": "5"})
+    ok(f"ride accepted -> started -> completed; chat closed ({chat['chat']['close_reason']}); rated 5★")
 
-
-def logout(page: Page) -> None:
-    post("/logout", {}, csrf_from=page)
+    # ---------------------------------------------------------------- 7. log out
+    c.post("/logout", form={})
+    _, _, url = c.get("/dashboard")
+    if "/login" not in url:
+        raise SmokeFailure(f"still logged in after logout: {url}")
+    ok("logged out")
 
 
 def main() -> int:
-    print(f"Smoke test against {BASE}\n")
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--base", default="http://127.0.0.1:5000", help="URL of the running app")
+    ap.add_argument("-q", "--quiet", action="store_true")
+    args = ap.parse_args()
+    started = time.time()
     try:
-        health = json.loads(get("/healthz").body)
-        step("server reachable", health.get("status") == "ok", health.get("platform", ""))
-    except Exception as exc:  # noqa: BLE001
-        step("server reachable", False, str(exc))
+        run(args.base, verbose=not args.quiet)
+    except SmokeFailure as exc:
+        print(f"\n ✗ SMOKE TEST FAILED: {exc}")
         return 1
-    env = get("/dev/env.json")
-    if env.status != 200:
-        step("dev tools enabled (ENABLE_DEV_TOOLS=true)", False, "needed to read codes")
+    except urllib.error.URLError as exc:
+        print(f"\n ✗ cannot reach {args.base}: {exc.reason}. Start the app first (python app.py).")
         return 1
-    feats = json.loads(env.body)["features"]
-    step("dev tools enabled", True, f"{feats['secret_encryption']}; rate limiting {feats['rate_limiting']}; captcha={feats['captcha_provider']}")
-
-    uid = secrets.token_hex(3)
-    username, email, phone = f"smoke_{uid}", f"smoke_{uid}@example.com", f"+1555010{secrets.randbelow(10**4):04d}"
-
-    # ---- register + plain login
-    p = get("/register")
-    p = post("/register", {"username": username, "email": email, "password": PASSWORD, "role": "both"}, csrf_from=p)
-    step("register", any("Registration successful" in a for a in p.alerts), p.alerts[:1])
-    p = post("/login", {"username": username, "password": PASSWORD}, csrf_from=get("/login"))
-    step("login without 2FA lands on dashboard", p.url.endswith("/dashboard"))
-
-    # ---- authenticator app
-    p = get("/settings/security/totp/setup")
-    key = re.search(r'class="manual-key[^>]*>([^<]+)<', p.body).group(1).replace(" ", "")
-    step("TOTP setup page shows manual key" + (" + QR" if "data:image/svg+xml" in p.body else " (no QR)"), bool(key))
-    p = post("/settings/security/totp/setup", {"code": totp.totp(key), "current_password": PASSWORD}, csrf_from=p)
-    recovery = re.findall(r"[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}", p.body)
-    step("TOTP enabled, 10 recovery codes shown", len(recovery) == 10)
-    fresh_totp(key, after_setup=True)
-
-    # ---- e-mail + sms
-    p = get("/settings/security/email/setup")
-    p = post("/settings/security/email/setup", {"action": "send"}, csrf_from=p)
-    p = post("/settings/security/email/setup", {"action": "verify", "code": latest_code("email", email), "current_password": PASSWORD}, csrf_from=p)
-    step("e-mail 2FA enabled", any("enabled" in a for a in p.alerts), p.alerts[:1])
-    p = get("/settings/security/sms/setup")
-    p = post("/settings/security/sms/setup", {"action": "send", "phone": phone}, csrf_from=p)
-    p = post("/settings/security/sms/setup", {"action": "verify", "code": latest_code("sms", phone), "current_password": PASSWORD}, csrf_from=p)
-    step("SMS 2FA enabled", any("enabled" in a for a in p.alerts), p.alerts[:1])
-    p = get("/settings/security")
-    step("security page shows all three methods on", p.body.count('badge bg-success">On') == 3)
-    logout(p)
-
-    # ---- login requires second factor; wrong code rejected; TOTP accepted
-    p = post("/login", {"username": username, "password": PASSWORD}, csrf_from=get("/login"))
-    step("password alone redirects to /2fa/verify", p.url.endswith("/2fa/verify"))
-    step("dashboard blocked before second factor", get("/dashboard").url.endswith("/login") or "login" in get("/dashboard").url)
-    p = get("/2fa/verify?method=totp")
-    p = post("/2fa/verify", {"method": "totp", "code": "000000"}, csrf_from=p)
-    step("wrong TOTP code rejected", any("Incorrect code" in a for a in p.alerts))
-    p = post("/2fa/verify", {"method": "totp", "code": fresh_totp(key)}, csrf_from=p)
-    step("correct TOTP code logs in", p.url.endswith("/dashboard"))
-    logout(p)
-
-    # ---- e-mail code login
-    p = post("/login", {"username": username, "password": PASSWORD}, csrf_from=get("/login"))
-    p = get("/2fa/verify?method=email")
-    p = post("/2fa/verify", {"method": "email", "action": "send"}, csrf_from=p)
-    p = post("/2fa/verify", {"method": "email", "code": latest_code("email", email)}, csrf_from=p)
-    step("e-mail code logs in", p.url.endswith("/dashboard"))
-    logout(p)
-
-    # ---- SMS code login with "remember this device"
-    p = post("/login", {"username": username, "password": PASSWORD}, csrf_from=get("/login"))
-    p = get("/2fa/verify?method=sms")
-    p = post("/2fa/verify", {"method": "sms", "action": "send"}, csrf_from=p)
-    p = post("/2fa/verify", {"method": "sms", "code": latest_code("sms", phone), "remember_device": "on"}, csrf_from=p)
-    step("SMS code logs in", p.url.endswith("/dashboard"))
-    step("trusted-device cookie set", any(c.name == "su_trusted_device" for c in jar))
-    logout(p)
-    p = post("/login", {"username": username, "password": PASSWORD}, csrf_from=get("/login"))
-    step("trusted device skips second factor", p.url.endswith("/dashboard"))
-    p = post("/settings/security/devices/revoke", {}, csrf_from=get("/settings/security"))
-    logout(p)
-
-    # ---- recovery code
-    p = post("/login", {"username": username, "password": PASSWORD}, csrf_from=get("/login"))
-    step("after revoking devices, 2FA required again", p.url.endswith("/2fa/verify"))
-    p = get("/2fa/verify?method=recovery")
-    p = post("/2fa/verify", {"method": "recovery", "code": recovery[0]}, csrf_from=p)
-    step("recovery code logs in", p.url.endswith("/dashboard"))
-    logout(p)
-    p = post("/login", {"username": username, "password": PASSWORD}, csrf_from=get("/login"))
-    p = post("/2fa/verify", {"method": "recovery", "code": recovery[0]}, csrf_from=get("/2fa/verify?method=recovery"))
-    step("used recovery code rejected", any("Incorrect code" in a for a in p.alerts))
-
-    # ---- password reset (e-mail link + second factor)
-    p = get("/password/forgot")
-    p = post("/password/forgot", {"email": email}, csrf_from=p)
-    step("forgot-password gives generic answer", any("If an account" in a for a in p.alerts))
-    reset_token = latest_message("email", email, r"/password/reset/([A-Za-z0-9_\-]+)")
-    p = get(f"/password/reset/{reset_token}")
-    step("reset link with 2FA enabled asks for second factor", "/password/reset/verify" in p.url, p.url)
-    p = get("/password/reset/verify?method=totp")
-    step("e-mail factor not offered for reset (stronger factor exists)", "E-mail codes" not in p.body)
-    p = post("/password/reset/verify", {"method": "totp", "code": fresh_totp(key)}, csrf_from=p)
-    step("second factor accepted for reset", "/password/reset/new" in p.url, p.url)
-    new_password = PASSWORD + "-new"
-    p = post("/password/reset/new", {"new_password": new_password, "confirm_password": new_password}, csrf_from=p)
-    step("password reset completed", any("has been reset" in a for a in p.alerts), p.alerts[:1])
-    step("old password rejected", post("/login", {"username": username, "password": PASSWORD}, csrf_from=get("/login")).status == 401)
-    # By now this IP has >= 3 failures (wrong TOTP, used recovery code, old password)
-    login_page = get("/login")
-    if feats["captcha_provider"] == "dummy":
-        step("CAPTCHA challenge shown after repeated failures", "captcha_answer" in login_page.body)
-        r = post("/login", {"username": username, "password": new_password, "captcha_answer": "wrong"}, csrf_from=login_page)
-        step("wrong CAPTCHA answer rejected", r.status == 400)
-        login_page = get("/login")
-    p = post("/login", {"username": username, "password": new_password}, csrf_from=login_page)
-    step("new password accepted (2FA still required)", p.url.endswith("/2fa/verify"))
-    step("reset link is single-use", get(f"/password/reset/{reset_token}").url.endswith("/password/forgot"))
-
-    # ---- social login (OAuth 2.0) through the fake identity provider
-    if feats.get("oauth_mode") == "fake":
-        def social(provider, email, first_time=True, expect_form_post=False):
-            start = get(f"/oauth/{provider}/start")  # urllib follows to the consent page
-            step(f"{provider}: app redirects to the (fake) provider with PKCE + state",
-                 "/authorize" in start.url and "code_challenge=" in start.url and "state=" in start.url, start.url[:60])
-            params = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(start.url).query))
-            form = {**params, "email": email, "name": "Smoke Dummy", "email_verified": "on", "decision": "allow"}
-            if first_time:
-                form["first_time"] = "on"
-            p = post(urllib.parse.urlparse(start.url).path, form, csrf_from=start)
-            if expect_form_post:
-                fields = dict(re.findall(r'name="(code|state)" value="([^"]+)"', p.body))
-                step("apple: provider returns a form_post page", "code" in fields and "state" in fields)
-                return post("/oauth/apple/callback", fields)  # 303 -> GET callback (urllib follows)
-            return p
-        oauth_email = f"social_{uid}@example.com"
-        p = social("google", oauth_email)
-        step("google: new user created and logged in", p.url.endswith("/dashboard"), p.alerts[:1])
-        logout(p)
-        p = social("apple", f"apple_{uid}@privaterelay.appleid.example", expect_form_post=True)
-        step("apple: id_token accepted, user logged in", p.url.endswith("/dashboard"), p.alerts[:1])
-        logout(p)
-        # e-mail collision with the password account created earlier: must NOT auto-link
-        p = social("facebook", email, first_time=False)
-        step("facebook: existing e-mail is not auto-linked (login required)", p.url.endswith("/login") and any("already exists" in a for a in p.alerts))
-        step("still logged out after collision", get("/dashboard").url.endswith("/login") or "login" in get("/dashboard").url)
-        p = get("/settings/security")
-
-    # ---- CSRF + security headers + rate limiting
-    r = post("/logout", {})
-    step("POST without CSRF token rejected", r.status == 400)
-    if feats["rate_limiting"].startswith("enabled"):
-        statuses = [post("/password/forgot", {"email": email}, csrf_from=get("/password/forgot")).status for _ in range(8)]
-        step("IP rate limit returns 429 on a flood", 429 in statuses, f"statuses={statuses}")
-    with opener.open(BASE + "/login", timeout=15) as resp:
-        h = resp.headers
-    step("security headers present", h.get("X-Frame-Options") == "DENY" and "Content-Security-Policy" in h)
-
-    print(f"\n{passed} passed, {failed} failed")
-    return 0 if failed == 0 else 1
+    print(f"\nSmoke test passed in {time.time() - started:.1f}s.")
+    return 0
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except Exception as exc:  # noqa: BLE001
-        print(f"\nERROR: {exc}")
-        sys.exit(1)
+    sys.exit(main())

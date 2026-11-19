@@ -1,0 +1,7 @@
+{# Account tab navigation: tabs on wide screens, a scrollable pill row on phones #}
+<ul class="nav nav-pills account-nav flex-nowrap overflow-auto mb-3">
+    <li class="nav-item"><a class="nav-link {% if active == 'overview' %}active{% endif %}" href="{{ url_for('account.overview') }}">Overview</a></li>
+    <li class="nav-item"><a class="nav-link {% if active == 'payments' %}active{% endif %}" href="{{ url_for('account.payments') }}">Payment methods</a></li>
+    <li class="nav-item"><a class="nav-link" href="{{ url_for('rides.my_rides') }}">Rides</a></li>
+    <li class="nav-item"><a class="nav-link" href="{{ url_for('auth.security') }}">Security</a></li>
+</ul>

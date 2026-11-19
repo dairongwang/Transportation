@@ -1,0 +1,5 @@
+Bootstrap v5.3.2 (https://getbootstrap.com/)  Copyright 2011-2023 The Bootstrap Authors
+Licensed under MIT (https://github.com/twbs/bootstrap/blob/main/LICENSE)
+Popper v2 (https://popper.js.org/)  Copyright (c) 2019 Federico Zivolo  Licensed under MIT
+
+Vendored here so the UI works offline / on a LAN without CDN access (phones, tablets, air-gapped machines).

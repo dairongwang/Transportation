@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "_macros.html" import bgc_tabs %}
+{% block title %}Background checks{% endblock %}
+{% block content %}
+<h2>🛡 Background checks</h2>
+{{ bgc_tabs(sub, summary) }}
+<p class="text-muted small">Connected to the ServiceUber Admin API at <code>{{ api_url }}</code> · {{ summary.users }} user accounts.</p>
+<div data-live="summary">
+<div class="row g-3">
+    <div class="col-md-3"><div class="card border-warning"><div class="card-body">
+        <h6 class="text-muted">Reports to review</h6><p class="display-6 mb-2" id="needs-review">{{ summary.needs_review }}</p>
+        <a class="btn btn-sm btn-warning" href="{{ url_for('views.reviews', status='needs_review') }}">Review flagged reports</a></div></div></div>
+    <div class="col-md-3"><div class="card border-danger"><div class="card-body">
+        <h6 class="text-muted">Disputes to decide</h6><p class="display-6 mb-2" id="disputes-to-decide">{{ summary.disputes_to_decide }}</p>
+        <a class="btn btn-sm btn-danger" href="{{ url_for('views.disputes', status='under_review') }}">Decide disputes</a></div></div></div>
+    <div class="col-md-3"><div class="card"><div class="card-body">
+        <h6 class="text-muted">Disputes waiting for the re-check</h6><p class="display-6 mb-2">{{ summary.disputes.rechecking }}</p>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('views.disputes', status='rechecking') }}">View</a></div></div></div>
+    <div class="col-md-3"><div class="card"><div class="card-body">
+        <h6 class="text-muted">Reports pending at the provider</h6><p class="display-6 mb-2">{{ summary.checks.pending }}</p>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('views.reviews', status='pending') }}">View</a></div></div></div>
+</div>
+<h5 class="mt-4">All reports</h5>
+<table class="table table-sm w-auto">
+    <tr>{% for k, v in summary.checks.items() %}<th><a href="{{ url_for('views.reviews', status=k) }}">{{ k }}</a></th>{% endfor %}</tr>
+    <tr>{% for k, v in summary.checks.items() %}<td>{{ v }}</td>{% endfor %}</tr>
+</table>
+</div>
+{% endblock %}

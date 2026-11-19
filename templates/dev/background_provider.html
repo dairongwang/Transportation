@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Fake background-check provider (dev) - ServiceUber{% endblock %}
+{% block content %}
+<h2>🧪 Fake background-check provider <span class="badge bg-warning text-dark">dev only</span></h2>
+<p class="text-muted small">Plays the <strong>provider</strong>: finish reports that are still <em>pending</em> (test identity <code>Pending</code>, or a
+    dispute re-check). The result is delivered through the same HMAC-signed webhook a real provider calls
+    (<code>POST {{ url_for('background.webhook') }}</code>).<br>
+    <strong>Manager decisions</strong> (approve / reject flagged reports, decide disputes) are made in the separate
+    admin dashboard (a separate application).</p>
+<div class="table-responsive">
+<table class="table table-sm align-middle small">
+    <thead><tr><th>#</th><th>User</th><th>Legal name</th><th>Package</th><th>Kind</th><th>Submitted</th><th>Deliver result</th></tr></thead>
+    <tbody>
+    {% for c in checks %}
+    <tr>
+        <td>{{ c.id }}</td>
+        <td>{{ c.user.username }}</td>
+        <td>{{ c.legal_name }}</td>
+        <td>{{ c.package }}</td>
+        <td>{{ 'dispute re-check' if c.held_for_review else 'check' }}</td>
+        <td>{{ c.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>
+            <form method="post" class="d-flex flex-wrap gap-1">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-outline-success" formaction="{{ url_for('dev_background.provider_complete', check_id=c.id, result='clear') }}">clear</button>
+                <button class="btn btn-sm btn-outline-warning" formaction="{{ url_for('dev_background.provider_complete', check_id=c.id, result='consider') }}">consider</button>
+                <button class="btn btn-sm btn-outline-secondary" formaction="{{ url_for('dev_background.provider_complete', check_id=c.id, result='unverified') }}">unverified</button>
+            </form>
+        </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="text-muted">No pending reports.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% endblock %}

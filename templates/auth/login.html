@@ -5,7 +5,7 @@
     <div class="col-md-5">
         <h2>Login</h2>
         {% if config.DEBUG %}
-        <p class="text-muted small">Demo accounts (DUMMY): demo_seller / dummySellerPass123 &nbsp;|&nbsp; demo_buyer / dummyBuyerPass123</p>
+        <p class="text-muted small">Demo accounts (DUMMY): dummy_seller / dummySellerPass123 &nbsp;|&nbsp; dummy_buyer / dummyBuyerPass123</p>
         {% endif %}
         <form method="post" autocomplete="on">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

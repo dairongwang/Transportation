@@ -2,14 +2,16 @@
 # Linux / macOS launcher: creates a venv, installs deps, prepares .env, starts the app.
 #   ./run.sh            -> http://127.0.0.1:5000
 #   ./run.sh --lan      -> also reachable from phones/tablets on the same Wi-Fi
+#   ./run.sh --lan-https-> same over HTTPS (self-signed) so phones can share their GPS position
 #   ./run.sh --check    -> only run the environment doctor
 #   ./run.sh --test     -> only run the test suite
 set -euo pipefail
 cd "$(dirname "$0")"
 
 PY=${PYTHON:-python3}
-if [ ! -d .venv ]; then
-  echo ">> creating virtual environment"; "$PY" -m venv .venv
+# (re)create the venv when it is missing or was made on another OS (copied project folder)
+if [ ! -f .venv/bin/activate ]; then
+  echo ">> creating virtual environment"; rm -rf .venv; "$PY" -m venv .venv
 fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
@@ -21,6 +23,7 @@ case "${1:-}" in
   --check) exec python scripts/check_env.py ;;
   --test)  exec python -m pytest ;;
   --lan)   export HOST=0.0.0.0 ;;
+  --lan-https) export HOST=0.0.0.0 HTTPS=1 ;;
 esac
 python scripts/check_env.py || { echo "Environment check failed"; exit 1; }
 echo ">> starting app (Ctrl+C to stop)"

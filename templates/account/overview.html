@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Account - ServiceUber{% endblock %}
+{% block content %}
+<h2>👤 Account</h2>
+{% set active = 'overview' %}{% include "account/_nav.html" %}
+
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header">Profile</div>
+            <div class="card-body">
+                <form method="post" action="{{ url_for('account.profile') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-2"><label class="form-label" for="display_name">Display name</label>
+                        <input id="display_name" name="display_name" class="form-control" maxlength="120" value="{{ current_user.display_name or '' }}" autocomplete="name"></div>
+                    <p class="mb-1 small text-muted">Username <code>{{ current_user.username }}</code> · e-mail <code>{{ current_user.email }}</code>{% if current_user.email_verified %} ✓{% endif %} · role {{ current_user.role }}</p>
+                    <p class="mb-3 small text-muted">Phone: {{ current_user.phone or 'not set' }}{% if current_user.phone_verified %} ✓{% endif %} — managed in <a href="{{ url_for('auth.security') }}">Security</a>.</p>
+                    <button class="btn btn-primary">Save</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header">Payment</div>
+            <div class="card-body">
+                {% if not can_pay %}
+                <p class="text-muted mb-0">Seller-only accounts do not pay for rides, so there is nothing to set up here.</p>
+                {% elif default %}
+                <p class="mb-1"><strong>Default:</strong> {{ default.display }}{% if default.label %} <span class="text-muted">“{{ default.label }}”</span>{% endif %}
+                    {% if default.is_expired %}<span class="badge bg-danger">expired</span>{% endif %}</p>
+                <p class="text-muted small">{{ methods|length }} method(s) on file.</p>
+                <a class="btn btn-outline-primary" href="{{ url_for('account.payments') }}">Manage payment methods</a>
+                {% else %}
+                <p class="text-muted">No payment method yet — rides are paid in cash until you add one.</p>
+                <a class="btn btn-primary" href="{{ url_for('account.payments') }}">Add a payment method</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<h4 class="mt-4">Recent rides</h4>
+{% if recent_rides %}
+<div class="list-group">
+    {% for r in recent_rides %}
+    <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" href="{{ url_for('rides.ride_detail', ride_id=r.id) }}">
+        <span>#{{ r.id }} {{ r.pickup_address }} → {{ r.dropoff_address }}</span>
+        <span>{% if r.fare %}${{ "%.2f"|format(r.fare) }}{% endif %}
+            {% if r.payment_status == 'failed' %}<span class="badge bg-danger">payment failed</span>{% endif %}
+            <span class="badge bg-secondary">{{ r.status.replace('_', ' ') }}</span></span>
+    </a>
+    {% endfor %}
+</div>
+{% else %}<p class="text-muted">No rides yet.{% if current_user.can_ride %} <a href="{{ url_for('rides.request_ride') }}">Request one</a>.{% endif %}</p>{% endif %}
+{% endblock %}

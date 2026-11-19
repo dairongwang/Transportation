@@ -1,0 +1,5 @@
+.navbar-brand { font-weight: bold; }
+.pre-wrap { white-space: pre-wrap; }
+.statement { white-space: pre-wrap; background: #f8f9fa; border-left: 4px solid #0d6efd; padding: .75rem 1rem; }
+.table td, .table th { vertical-align: middle; }
+.screen-list { list-style: none; padding-left: 0; margin-bottom: 0; }

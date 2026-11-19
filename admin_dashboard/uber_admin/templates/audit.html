@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Audit log{% endblock %}
+{% block content %}
+<h2>Audit log</h2>
+<p class="text-muted small">Everything done in this dashboard (the ServiceUber app keeps its own audit trail of the same decisions).</p>
+<div data-live="audit">
+<table class="table table-sm small" id="audit-table">
+    <thead><tr><th>When (UTC)</th><th>Who</th><th>Action</th><th>Target</th><th>Outcome</th><th>Detail</th><th>IP</th></tr></thead>
+    <tbody>
+    {% for e in entries %}
+    <tr>
+        <td>{{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td><td>{{ e.actor or '—' }}</td><td>{{ e.action }}</td>
+        <td>{{ e.target or '' }}</td>
+        <td><span class="badge bg-{{ {'ok': 'success', 'error': 'danger', 'denied': 'warning text-dark'}.get(e.outcome, 'secondary') }}">{{ e.outcome }}</span></td>
+        <td>{{ e.detail or '' }}</td><td>{{ e.ip or '' }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="text-muted">No entries yet.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% endblock %}

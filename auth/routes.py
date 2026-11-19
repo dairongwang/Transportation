@@ -234,6 +234,10 @@ def register():
             user = User(username=username, email=email, role=role)
             user.set_password(password)
             db.session.add(user)
+            db.session.flush()
+            from background import live  # managers' Users tab updates live
+
+            live.push_admin("user_registered", user)
             db.session.commit()
             record("register", user.id)
             flash("Registration successful! Please log in, then enable two-factor authentication in Security settings.", "success")

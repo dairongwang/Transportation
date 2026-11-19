@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Edit payment method - ServiceUber{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <h2>Edit {{ m.display }}</h2>
+        <form method="post" class="card card-body">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="mb-3">
+                <label class="form-label" for="label">Nickname</label>
+                <input id="label" name="label" class="form-control" maxlength="60" value="{{ m.label or '' }}" placeholder="e.g. Work card">
+            </div>
+            {% if m.kind == 'card' %}
+            <div class="mb-3">
+                <label class="form-label" for="billing_name">Name on card</label>
+                <input id="billing_name" name="billing_name" class="form-control" maxlength="120" value="{{ m.billing_name or '' }}" autocomplete="cc-name" required>
+            </div>
+            <div class="row g-2 mb-3">
+                <div class="col-6 col-sm-3"><label class="form-label" for="exp_month">Exp. month</label>
+                    <input id="exp_month" name="exp_month" class="form-control" inputmode="numeric" pattern="[0-9]{1,2}" maxlength="2" value="{{ m.exp_month }}" required></div>
+                <div class="col-6 col-sm-3"><label class="form-label" for="exp_year">Exp. year</label>
+                    <input id="exp_year" name="exp_year" class="form-control" inputmode="numeric" pattern="[0-9]{2,4}" maxlength="4" value="{{ m.exp_year }}" required></div>
+            </div>
+            <p class="small text-muted">Card on file: {{ m.brand|title }} •••• {{ m.last4 }}, token <code>{{ m.token_hint }}</code> (the number itself is not stored).
+                To use a different card, delete this one and add the new card. Changing the expiry re-dates the card at the vault and re-validates it with a small hold that is voided immediately.</p>
+            {% else %}
+            <p class="small text-muted">Linked {{ m.kind_label }} account: <code>{{ m.account_email_masked }}</code>, token <code>{{ m.token_hint }}</code>
+                (ServiceUber holds only the masked address and the token). To link a different account, delete this one and connect again.</p>
+            {% endif %}
+            <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" id="make_default" name="make_default" {% if m.is_default %}checked disabled{% endif %}>
+                <label class="form-check-label" for="make_default">{{ 'This is your default' if m.is_default else 'Make this my default' }}</label>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-primary">Save changes</button>
+                <a class="btn btn-outline-secondary" href="{{ url_for('account.payments') }}">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

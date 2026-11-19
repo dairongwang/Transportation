@@ -2,13 +2,16 @@
 REM Windows (cmd.exe) launcher: creates a venv, installs deps, prepares .env, starts the app.
 REM   run.bat            -> http://127.0.0.1:5000
 REM   run.bat --lan      -> also reachable from phones/tablets on the same Wi-Fi
+REM   run.bat --lan-https -> same over HTTPS (self-signed) so phones can share their GPS position
 REM   run.bat --check    -> only run the environment doctor
 REM   run.bat --test     -> only run the test suite
 setlocal
 cd /d "%~dp0"
 
-if not exist .venv (
+REM (re)create the venv when it is missing or was made on another OS (copied project folder)
+if not exist .venv\Scripts\activate.bat (
   echo ^>^> creating virtual environment
+  if exist .venv rmdir /s /q .venv
   py -3 -m venv .venv 2>nul || python -m venv .venv
   if errorlevel 1 ( echo Python 3.10+ not found. Install from https://www.python.org/downloads/windows/ & exit /b 1 )
 )
@@ -21,6 +24,7 @@ if not exist .env ( copy .env.example .env >nul & echo ^>^> created .env from .e
 if "%~1"=="--check" ( python scripts\check_env.py & exit /b %errorlevel% )
 if "%~1"=="--test"  ( python -m pytest & exit /b %errorlevel% )
 if "%~1"=="--lan"   ( set HOST=0.0.0.0 )
+if "%~1"=="--lan-https" ( set HOST=0.0.0.0 & set HTTPS=1 )
 
 python scripts\check_env.py
 if errorlevel 1 ( echo Environment check failed & exit /b 1 )

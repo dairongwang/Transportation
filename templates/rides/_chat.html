@@ -1,0 +1,74 @@
+{# Rider <-> driver chat for the ride page (rides/chat.py).
+   Opens when the rider places the order; closes when that driver drops out or the ride ends.
+   Works without JavaScript (plain form posts); static/chat.js makes it live (messages arrive over
+   the /events/account push stream and are sent with fetch, no reload).
+   Expects: ride, chat_room, chat_messages, chat_quick_replies, chat_max_length.
+   The markup of one message is mirrored by renderMessage() in static/chat.js - keep them in sync. #}
+{% macro chat_message(m, room) %}
+{%- set role = 'system' if m.sender_id is none else ('rider' if m.sender_id == room.rider_id else 'driver') -%}
+{%- set mine = m.sender_id is not none and m.sender_id == current_user.id -%}
+{% if role == 'system' %}
+<div class="chat-msg chat-system-row" data-message-id="{{ m.id }}">
+    <div class="chat-system">{{ m.body }} <time class="chat-time" datetime="{{ m.created_at.isoformat() }}Z">{{ m.created_at.strftime('%H:%M') }} UTC</time></div>
+</div>
+{% else %}
+<div class="chat-msg {{ 'chat-mine' if mine else 'chat-theirs' }}" data-message-id="{{ m.id }}">
+    <div class="chat-bubble">
+        <div class="chat-meta"><strong>{{ 'You' if mine else m.sender.username }}</strong>{% if not mine %} · {{ role }}{% endif %} ·
+            <time class="chat-time" datetime="{{ m.created_at.isoformat() }}Z">{{ m.created_at.strftime('%H:%M') }} UTC</time></div>
+        <div class="chat-body pre-wrap">{{ m.body }}</div>
+        {% if m.kind == 'location' and m.lat is not none %}
+        <div class="chat-location">📍 {{ place(None, m.lat, m.lng) }} · <a href="geo:{{ '%.6f'|format(m.lat) }},{{ '%.6f'|format(m.lng) }}">{{ '%.5f'|format(m.lat) }}, {{ '%.5f'|format(m.lng) }}</a></div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+{% endmacro %}
+
+{% if chat_room %}
+{% set my_role = chat_room.role_of(current_user) %}
+{% set other = chat_room.other_party(current_user) %}
+<div class="card mb-3 ride-chat {{ 'border-success' if chat_room.is_open else 'border-secondary' }}" id="ride-chat"
+     data-chat-id="{{ chat_room.id }}" data-ride-id="{{ ride.id }}" data-my-role="{{ my_role }}"
+     data-open="{{ '1' if chat_room.is_open else '0' }}" data-max-length="{{ chat_max_length }}"
+     data-api-url="{{ url_for('rides.api_chat', ride_id=ride.id) }}"
+     data-read-url="{{ url_for('rides.api_chat_read', ride_id=ride.id) }}"
+     data-csrf="{{ csrf_token() }}" data-other="{{ other.username }}">
+    <div class="card-header d-flex justify-content-between align-items-center gap-2">
+        <span>💬 Chat with <strong>{{ other.username }}</strong>
+            <small class="text-muted">({{ 'your driver' if my_role == 'rider' else 'your rider' }})</small></span>
+        <span class="badge {{ 'bg-success' if chat_room.is_open else 'bg-secondary' }}" id="chat-state">{{ 'open' if chat_room.is_open else 'closed' }}</span>
+    </div>
+    <div class="card-body p-2">
+        <div class="chat-log" id="chat-log" role="log" aria-live="polite" aria-label="Chat with {{ other.username }}">
+            {% for m in chat_messages %}{{ chat_message(m, chat_room) }}{% endfor %}
+        </div>
+        {% if chat_room.is_open %}
+        <div id="chat-compose">
+            {% if chat_quick_replies %}
+            <form method="post" action="{{ url_for('rides.chat_post', ride_id=ride.id) }}" class="chat-quick d-flex flex-wrap gap-1 mt-2" id="chat-quick">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% for q in chat_quick_replies %}<button type="submit" name="body" value="{{ q }}" class="btn btn-sm btn-outline-secondary">{{ q }}</button>{% endfor %}
+            </form>
+            {% endif %}
+            <form method="post" action="{{ url_for('rides.chat_post', ride_id=ride.id) }}" class="mt-2" id="chat-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="input-group">
+                    <textarea name="body" id="chat-input" class="form-control" rows="1" maxlength="{{ chat_max_length }}" required
+                              placeholder="Message {{ other.username }}…" aria-label="Message {{ other.username }}"></textarea>
+                    <button type="submit" class="btn btn-primary" id="chat-send">Send</button>
+                </div>
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-1">
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="chat-share-location" hidden
+                            title="Send your current GPS position so the other side can find you">📍 Share my location</button>
+                    <small class="text-muted ms-auto" id="chat-status" role="status"></small>
+                    <small class="text-muted"><span id="chat-count">0</span>/{{ chat_max_length }}</small>
+                </div>
+            </form>
+            <p class="small text-muted mb-0 mt-1">Only you and {{ other.username }} can read this chat. No need to share phone numbers.</p>
+        </div>
+        {% endif %}
+        <p class="text-muted small mb-0 mt-2 {{ '' if not chat_room.is_open else 'd-none' }}" id="chat-closed-note">This chat is closed{% if chat_room.close_reason %} ({{ chat_room.close_reason }}){% endif %}. The conversation stays here for your reference.</p>
+    </div>
+</div>
+{% endif %}

@@ -43,3 +43,40 @@ def app(tmp_path):
 @pytest.fixture
 def client(app):
     return app.test_client()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_event_broker():
+    """Push-event subscribers never leak from one test into the next."""
+    from rides.events import broker
+
+    broker.clear()
+    yield
+    broker.clear()
+
+
+@pytest.fixture
+def fleet(app):
+    """The DUMMY demo driver bots (dummy_driver_1..8), online around the demo city, background-checked."""
+    from rides import simulator
+
+    simulator.seed_demo_drivers()
+    return simulator.bots()
+
+
+@pytest.fixture
+def rider(app):
+    """A logged-out rider account with a passed background check."""
+    from helpers import make_user
+
+    return make_user("dummy_rider")
+
+
+@pytest.fixture
+def rider_client(app, rider):
+    """A test client logged in as the background-checked rider."""
+    from helpers import login
+
+    c = app.test_client()
+    login(c, "dummy_rider")
+    return c

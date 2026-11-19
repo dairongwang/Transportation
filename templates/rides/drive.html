@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Drive - ServiceUber{% endblock %}
+{% block content %}
+<h2>🚘 Drive</h2>
+{% set bgc = background_clearance() %}
+{% if bgc and not bgc.can_drive %}
+<div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span>🛡 <strong>Driving needs a driver background check.</strong> Your current check covers riding only
+        (the driver check adds a motor-vehicle-record screen and requires age {{ config.BACKGROUND_CHECK_MIN_DRIVER_AGE }}+).
+        Until then riders cannot see you and you cannot go online.</span>
+    <a class="btn btn-sm btn-warning" href="{{ url_for('background.check') }}">Add my driving licence</a>
+</div>
+{% endif %}
+
+<div class="row">
+    <div class="col-md-5">
+        {# ---------------- profile ---------------- #}
+        <div class="card mb-3">
+            <div class="card-header">{{ 'Driver profile' if driver else 'Become a driver' }}</div>
+            <div class="card-body">
+                <form method="post" action="{{ url_for('rides.drive') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="row g-2">
+                        <div class="col-8"><label class="form-label" for="vehicle">Vehicle</label>
+                            <input id="vehicle" name="vehicle" class="form-control" maxlength="80" value="{{ driver.vehicle if driver else 'Sedan' }}"></div>
+                        <div class="col-4"><label class="form-label" for="plate">Plate</label>
+                            <input id="plate" name="plate" class="form-control" maxlength="20" placeholder="DUMMY-000" value="{{ driver.plate or '' if driver else '' }}"></div>
+                        <div class="col-6"><label class="form-label" for="base_fare">Base fare $</label>
+                            <input id="base_fare" name="base_fare" type="number" step="0.01" min="0" class="form-control" value="{{ driver.base_fare if driver else 2.5 }}"></div>
+                        <div class="col-6"><label class="form-label" for="min_fare">Minimum fare $</label>
+                            <input id="min_fare" name="min_fare" type="number" step="0.01" min="0" class="form-control" value="{{ driver.min_fare if driver else 5.0 }}"></div>
+                        <div class="col-6"><label class="form-label" for="per_km_rate">$ per km</label>
+                            <input id="per_km_rate" name="per_km_rate" type="number" step="0.01" min="0" class="form-control" value="{{ driver.per_km_rate if driver else 1.2 }}"></div>
+                        <div class="col-6"><label class="form-label" for="per_min_rate">$ per minute</label>
+                            <input id="per_min_rate" name="per_min_rate" type="number" step="0.01" min="0" class="form-control" value="{{ driver.per_min_rate if driver else 0.25 }}"></div>
+                    </div>
+                    <button class="btn btn-success mt-3">{{ 'Save' if driver else 'Create driver profile' }}</button>
+                </form>
+                {% if driver %}
+                <hr>
+                <p class="mb-1"><strong>Rating:</strong> {{ "%.2f"|format(driver.rating) }} ★ ({{ driver.rating_count }} ratings{% if not driver.rating_count %}, default prior{% endif %})</p>
+                <p class="mb-0"><strong>Acceptance rate:</strong> {{ "%.0f"|format(driver.acceptance_rate * 100) }}% ({{ driver.offers_accepted }}/{{ driver.offers_received }} offers{% if not driver.offers_received %}, default prior{% endif %})</p>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if driver %}
+        {% with next_page='drive' %}{% include "rides/_driver_status.html" %}{% endwith %}
+        {% endif %}
+    </div>
+
+    <div class="col-md-7">
+        {% if driver %}
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h4 class="mb-0">Ride requests for you</h4>
+            {% include "rides/_place_toggle.html" %}
+        </div>
+        {% set offers = pending_offers_for(driver) %}
+        <div id="incoming-rides" data-offers-url="{{ url_for('rides.api_driver_offers', next='drive') }}" data-events-url="{{ url_for('rides.events_driver') }}" data-version="{{ offers_version(offers) }}" data-title="{{ self.title() }}">
+            <p class="small text-muted mb-1"><span class="badge bg-warning text-dark" id="incoming-count">{{ offers|length }}</span> waiting · updates live <span id="incoming-status"></span></p>
+            <div id="incoming-offers">
+                {% with next_page='drive' %}{% include "rides/_incoming_offers.html" %}{% endwith %}
+            </div>
+            {% if not driver.is_online %}<p class="text-muted small">Switch to "Available to drive" to receive requests.</p>{% endif %}
+        </div>
+        <script src="{{ url_for('static', filename='incoming.js') }}"></script>
+
+        <h4 class="mt-4">Current ride</h4>
+        {% if active %}
+        {% for r in active %}
+        <div class="card mb-2"><div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div><a href="{{ url_for('rides.ride_detail', ride_id=r.id) }}">Ride #{{ r.id }}</a> — {{ place(r.pickup_address, r.pickup_lat, r.pickup_lng) }} → {{ place(r.dropoff_address, r.dropoff_lat, r.dropoff_lng) }}
+                <a class="btn btn-sm btn-outline-success ms-1" href="{{ url_for('rides.ride_detail', ride_id=r.id, _anchor='ride-chat') }}">💬 Chat with {{ r.rider.username }} <span class="badge bg-danger chat-unread" data-chat-unread-ride="{{ r.id }}">{{ chat_unread(r) or '' }}</span></a>
+                <span class="badge bg-primary">{{ r.status.replace('_', ' ') }}</span><br>
+                <small class="text-muted">Rider {{ r.rider.username }} · ${{ "%.2f"|format(r.fare) }} · token <code>{{ r.payment_token }}</code></small></div>
+            <div class="d-flex gap-2">
+                {% if r.status == 'accepted' %}
+                <form method="post" action="{{ url_for('rides.driver_ride_action', ride_id=r.id, action='start') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-primary">Start</button>
+                </form>
+                {% else %}
+                <form method="post" action="{{ url_for('rides.driver_ride_action', ride_id=r.id, action='complete') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-success">Complete</button>
+                </form>
+                {% endif %}
+            </div>
+        </div></div>
+        {% endfor %}
+        {% else %}
+        <p class="text-muted">None.</p>
+        {% endif %}
+
+        <h4 class="mt-4">Recent rides</h4>
+        {% if history %}
+        <ul class="list-group">
+            {% for r in history %}
+            <li class="list-group-item d-flex justify-content-between">
+                <span><a href="{{ url_for('rides.ride_detail', ride_id=r.id) }}">#{{ r.id }}</a> {{ place(r.pickup_address, r.pickup_lat, r.pickup_lng) }} → {{ place(r.dropoff_address, r.dropoff_lat, r.dropoff_lng) }}
+                    {% if r.rider_rating %}<small class="text-warning">{{ '★' * r.rider_rating }}</small>{% endif %}</span>
+                <span>{% if r.fare %}${{ "%.2f"|format(r.fare) }}{% endif %} <span class="badge bg-secondary">{{ r.status }}</span></span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}<p class="text-muted">None yet.</p>{% endif %}
+        {% else %}
+        <div class="alert alert-info">Create your driver profile, then share your GPS position and switch to <em>Available to drive</em> (here or on the dashboard). Riders searching within {{ config.RIDE_SEARCH_RADIUS_KM|round(0)|int }} km of you will then see you in their ranked list — ranked by distance to the pickup, your rating, your quoted price and your acceptance rate.</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

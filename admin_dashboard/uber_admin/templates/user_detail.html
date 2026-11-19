@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% from "_macros.html" import badge %}
+{% block title %}{{ data.user.username }}{% endblock %}
+{% block content %}
+{% set u = data.user %}
+<p class="small mb-1"><a href="{{ url_for('views.users') }}">← All users</a></p>
+<div data-live="user">
+<h2>👤 {{ u.username }} {{ badge(u.state) }}{% if u.locked %} <span class="badge bg-dark">locked</span>{% endif %}</h2>
+<p class="text-muted">{{ data.clearance.message }}</p>
+<div class="row g-3">
+    <div class="col-lg-4">
+        <div class="card h-100"><div class="card-header">Profile</div>
+            <table class="table table-sm small mb-0">
+                <tr><th>Name</th><td>{{ u.display_name or '—' }}</td></tr>
+                <tr><th>E-mail</th><td>{{ u.email }} {% if u.email_verified %}<span class="badge bg-success">verified</span>{% endif %}</td></tr>
+                <tr><th>Role</th><td>{{ u.role }}</td></tr>
+                <tr><th>Age</th><td>{{ u.age if u.age is not none else '— (no background check)' }}</td></tr>
+                <tr><th>Status</th><td>{{ statuses.get(u.state, u.state) }}</td></tr>
+                <tr><th>Sign-in</th><td>{{ 'password' if u.password_login else '' }}{{ ' + ' if u.password_login and u.social_login else '' }}{{ 'social login' if u.social_login else '' }}
+                    · 2FA {{ 'on' if u.mfa_enabled else 'off' }}</td></tr>
+                <tr><th>Joined</th><td>{{ u.created_at|dt }}</td></tr>
+                <tr><th>Last login</th><td>{{ u.last_login_at|dt }}</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card h-100"><div class="card-header">Driving</div>
+            <div class="card-body small">
+            {% if data.driver %}
+                <p class="mb-1">{{ data.driver.vehicle }} · {{ 'online' if data.driver.online else 'offline' }}</p>
+                <p class="mb-1">Rating {{ data.driver.rating }} ★ ({{ data.driver.rating_count }}) · acceptance {{ (data.driver.acceptance_rate * 100)|round|int }} %</p>
+                <p class="mb-0">{% if u.can_drive %}<span class="badge bg-success">driver check valid</span>{% else %}<span class="badge bg-secondary">cannot drive - no valid driver background check</span>{% endif %}</p>
+            {% else %}<p class="text-muted mb-0">No driver profile.</p>{% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card h-100"><div class="card-header">Activity</div>
+            <table class="table table-sm small mb-0">
+                <tr><th>Rides as rider</th><td>{{ data.activity.rides_as_rider }}</td></tr>
+                <tr><th>Rides as driver</th><td>{{ data.activity.rides_as_driver }}</td></tr>
+                <tr><th>Payment methods</th><td>{{ data.activity.payment_methods }}</td></tr>
+            </table>
+        </div>
+    </div>
+</div>
+
+<h5 class="mt-4">Background-check reports</h5>
+<table class="table table-sm small" id="user-checks">
+    <thead><tr><th>#</th><th>Package</th><th>Status</th><th>Submitted</th><th>Valid until</th><th>Decided by</th></tr></thead>
+    <tbody>
+    {% for c in data.checks %}
+    <tr><td><a href="{{ url_for('views.review_detail', check_id=c.id) }}">{{ c.id }}</a></td><td>{{ c.package }}</td>
+        <td>{{ badge(c.status) }}{% if c.held_for_review %} <span class="badge bg-info">dispute re-check</span>{% endif %}</td>
+        <td>{{ c.submitted_at|dt }}</td><td>{{ c.expires_at|dt }}</td><td>{{ c.adjudicated_by or '—' }}</td></tr>
+    {% else %}<tr><td colspan="6" class="text-muted">No background check yet.</td></tr>{% endfor %}
+    </tbody>
+</table>
+{% if data.disputes %}
+<h5>Disputes</h5>
+<table class="table table-sm small">
+    <thead><tr><th>#</th><th>Status</th><th>Raised</th><th>Decided</th><th>By</th></tr></thead>
+    <tbody>
+    {% for d in data.disputes %}
+    <tr><td><a href="{{ url_for('views.dispute_detail', dispute_id=d.id) }}">{{ d.id }}</a></td><td>{{ badge(d.status) }}</td>
+        <td>{{ d.created_at|dt }}</td><td>{{ d.decided_at|dt }}</td><td>{{ d.decided_by or '—' }}</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+</div>
+
+{# ---------------------------------------------------------------- financial transactions #}
+{% set TX_BADGE = {'buy': 'primary', 'sell': 'success', 'refund': 'info', 'hold': 'warning text-dark', 'verification': 'secondary'} %}
+{% set TX_LABEL = {'buy': 'Buy', 'sell': 'Sell', 'refund': 'Refund', 'hold': 'Hold', 'verification': 'Verification'} %}
+<h4 class="mt-4" id="transactions">💳 Financial transactions</h4>
+<form class="row g-2 align-items-end mb-2" method="get" action="{{ url_for('views.user_detail', user_id=u.id) }}#transactions" id="tx-filters">
+    <div class="col-6 col-md-2"><label class="form-label small mb-0" for="date_from">From</label>
+        <input id="date_from" name="date_from" type="date" class="form-control form-control-sm" value="{{ tx_form.date_from }}"></div>
+    <div class="col-6 col-md-2"><label class="form-label small mb-0" for="date_to">To</label>
+        <input id="date_to" name="date_to" type="date" class="form-control form-control-sm" value="{{ tx_form.date_to }}"></div>
+    <div class="col-sm-6 col-md-3"><label class="form-label small mb-0" for="method">Payment method</label>
+        <select id="method" name="method" class="form-select form-select-sm">
+            <option value="">All payment methods</option>
+            {% for m in tx.methods %}<option value="{{ m.value }}" {% if m.value == tx_form.method %}selected{% endif %}>{{ m.label }}</option>{% endfor %}
+        </select></div>
+    <div class="col-sm-6 col-md-2"><label class="form-label small mb-0" for="type">Type</label>
+        <select id="type" name="type" class="form-select form-select-sm">
+            <option value="">All types</option>
+            {% for t in tx.types %}<option value="{{ t.value }}" {% if t.value == tx_form.type %}selected{% endif %}>{{ t.label }}</option>{% endfor %}
+        </select></div>
+    <div class="col-auto"><button class="btn btn-sm btn-primary">Apply</button>
+        {% if tx_filtered %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('views.user_detail', user_id=u.id) }}#transactions">Reset</a>{% endif %}
+        <a class="btn btn-sm btn-outline-success" id="tx-csv" href="{{ url_for('views.user_transactions_csv', user_id=u.id, **tx_args) }}">⬇ CSV</a></div>
+</form>
+<p class="small text-muted mb-2">Buy = the user paid (rides, service bookings) · Sell = the user earned (rides driven, services sold) ·
+    Refund = money returned to the user · Hold = money reserved when ordering a ride (not a charge) ·
+    Verification = temporary hold to validate a payment method. Totals count settled money only. Dates are UTC.</p>
+
+<div data-live="transactions" data-user-id="{{ u.id }}">
+{% if tx.totals %}
+{% set T = tx.totals %}
+<div class="row g-2 mb-2 small" id="tx-totals">
+    <div class="col-6 col-md-2"><div class="border rounded p-2"><div class="text-muted">Transactions</div><strong>{{ T.count }}</strong></div></div>
+    <div class="col-6 col-md-2"><div class="border rounded p-2"><div class="text-muted">Money out (paid)</div><strong>{{ T.currency }} {{ "%.2f"|format(T.money_out) }}</strong></div></div>
+    <div class="col-6 col-md-2"><div class="border rounded p-2"><div class="text-muted">Money in (earned + refunds)</div><strong>{{ T.currency }} {{ "%.2f"|format(T.money_in) }}</strong></div></div>
+    <div class="col-6 col-md-2"><div class="border rounded p-2"><div class="text-muted">Net</div><strong class="{{ 'text-success' if T.net > 0 else 'text-danger' if T.net < 0 else '' }}">{{ T.currency }} {{ "%.2f"|format(T.net) }}</strong></div></div>
+    <div class="col-6 col-md-2"><div class="border rounded p-2"><div class="text-muted">Open holds</div><strong>{{ T.currency }} {{ "%.2f"|format(T.open_holds) }}</strong></div></div>
+</div>
+{% endif %}
+<div class="table-responsive">
+<table class="table table-sm table-hover small" id="tx-table">
+    <thead><tr><th>Date (UTC)</th><th>Type</th><th>Description</th><th>Other party</th><th>Payment method</th><th>Status</th>
+        <th class="text-end">Amount</th><th>Reference</th><th></th></tr></thead>
+    <tbody>
+    {% for r in tx['items'] %}
+    <tr>
+        <td class="text-nowrap">{{ r.date|dt }}</td>
+        <td><span class="badge bg-{{ TX_BADGE.get(r.type, 'secondary') }}">{{ TX_LABEL.get(r.type, r.type) }}</span></td>
+        <td>{{ r.description }}
+            {% if r.type == 'refund' and r.issued_by %}<br><span class="text-muted">issued by {{ r.issued_by }}</span>{% endif %}
+            {% if r.refunded_amount %}<br><span class="text-info">refunded {{ r.currency }} {{ "%.2f"|format(r.refunded_amount) }}</span>{% endif %}</td>
+        <td>{{ r.counterparty or '—' }}</td>
+        <td>{{ r.method_label }}</td>
+        <td>{{ badge(r.status) }}{% if r.failure_reason %}<br><span class="text-danger">{{ r.failure_reason.replace('_', ' ') }}</span>{% endif %}</td>
+        <td class="text-end text-nowrap {{ 'text-danger' if r.direction == 'out' else 'text-success' if r.direction == 'in' else 'text-muted' }}">
+            {{ '−' if r.direction == 'out' else '+' if r.direction == 'in' else '' }}{{ r.currency }} {{ "%.2f"|format(r.amount) }}</td>
+        <td><code class="small">{{ r.reference or '' }}</code></td>
+        <td>{% if r.refundable_amount and g.admin.can_decide %}<a class="btn btn-sm btn-outline-danger" href="{{ url_for('views.refund', user_id=u.id, tx_id=r.transaction_id) }}">Refund</a>{% endif %}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="9" class="text-muted">No transactions{% if tx_filtered %} match these filters{% endif %}.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+<p class="small text-muted">{{ tx.total }} transaction(s).
+    {% if tx_page > 1 %}<a href="{{ url_for('views.user_detail', user_id=u.id, page=tx_page - 1, **tx_args) }}#transactions">← previous</a>{% endif %}
+    {% if tx.offset + tx['items']|length < tx.total %}<a href="{{ url_for('views.user_detail', user_id=u.id, page=tx_page + 1, **tx_args) }}#transactions">next →</a>{% endif %}</p>
+</div>
+{% endblock %}

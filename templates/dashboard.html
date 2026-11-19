@@ -1,9 +1,23 @@
 {% extends "base.html" %}
 {% block title %}Dashboard - ServiceUber{% endblock %}
 {% block content %}
-<h2>Dashboard — {{ current_user.username }}</h2>
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="mb-0">Dashboard — {{ current_user.username }}</h2>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('account.overview') }}">👤 Account &amp; payment methods</a>
+</div>
 
-<div class="row">
+{# ---------------- driving: availability + GPS ---------------- #}
+{% if driver %}
+    {% with next_page='dashboard' %}{% include "rides/_driver_status.html" %}{% endwith %}
+{% elif can_drive %}
+<div class="alert alert-light border d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+    <span>🚘 <strong>Want to drive?</strong> Create your driver profile (vehicle, prices); then switch to <em>Available to drive</em> here and share your GPS position - riders nearby will see you in their ranked list.</span>
+    <a class="btn btn-sm btn-success" href="{{ url_for('rides.drive') }}">Become a driver</a>
+</div>
+{% endif %}
+
+<div class="row mt-3">
+    {% if can_post %}
     <div class="col-md-6">
         <h4>My Posted Services</h4>
         {% if my_services %}
@@ -19,7 +33,8 @@
         <p>No services posted. <a href="{{ url_for('post_service') }}">Post one</a></p>
         {% endif %}
     </div>
-    <div class="col-md-6">
+    {% endif %}
+    <div class="{{ 'col-md-6' if can_post else 'col-12' }}">
         <h4>My Bookings (as Buyer)</h4>
         {% if my_bookings %}
         <ul class="list-group">
@@ -43,8 +58,56 @@
     </div>
 </div>
 
+{% if can_ride %}
 <hr>
-<h4>Incoming Booking Requests (as Seller)</h4>
+<div class="d-flex justify-content-between align-items-center">
+    <h4>My Recent Rides</h4>
+    <span class="d-flex gap-2 align-items-center flex-wrap">
+        {% if not is_seller %}{% include "rides/_place_toggle.html" %}{% endif %}
+        <a class="btn btn-sm btn-primary" href="{{ url_for('rides.request_ride') }}">Request a ride</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('rides.my_rides') }}">All rides</a>
+    </span>
+</div>
+{% if my_rides %}
+<ul class="list-group mb-3">
+    {% for r in my_rides %}
+    <li class="list-group-item d-flex justify-content-between">
+        <span><a href="{{ url_for('rides.ride_detail', ride_id=r.id) }}">Ride #{{ r.id }}</a> {{ place(r.pickup_address, r.pickup_lat, r.pickup_lng) }} → {{ place(r.dropoff_address, r.dropoff_lat, r.dropoff_lng) }}
+            {% if r.driver %}<small class="text-muted">with {{ r.driver.user.username }}</small>{% endif %}
+            {% if r.status in ('offered', 'accepted', 'in_progress') %}<a class="small ms-1" href="{{ url_for('rides.ride_detail', ride_id=r.id, _anchor='ride-chat') }}">💬 Chat</a>{% endif %}
+            <span class="badge bg-danger chat-unread" data-chat-unread-ride="{{ r.id }}" title="Unread chat messages">{{ chat_unread(r) or '' }}</span></span>
+        <span>{% if r.fare %}${{ "%.2f"|format(r.fare) }}{% endif %} <span class="badge bg-info text-dark">{{ r.status.replace('_', ' ') }}</span></span>
+    </li>
+    {% endfor %}
+</ul>
+{% else %}
+<p class="text-muted">No rides yet.</p>
+{% endif %}
+{% endif %}{# can_ride #}
+
+{% if is_seller %}
+<hr>
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h4 class="mb-0">Incoming Booking Requests (as Seller)</h4>
+    {% include "rides/_place_toggle.html" %}
+</div>
+{% if driver %}
+{% set offers = pending_offers_for(driver) %}
+<div class="card mt-2 mb-3 border-warning" id="incoming-rides"
+     data-offers-url="{{ url_for('rides.api_driver_offers', next='dashboard') }}" data-events-url="{{ url_for('rides.events_driver') }}" data-version="{{ offers_version(offers) }}"
+     data-title="{{ self.title() }}">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>🚕 Ride requests <span class="badge bg-warning text-dark" id="incoming-count">{{ offers|length }}</span>
+            <small class="text-muted">— riders who selected you; pushed to this page, no refresh needed</small></span>
+        <span class="small text-muted" id="incoming-status">live</span>
+    </div>
+    <div class="card-body pb-1" id="incoming-offers">
+        {% with next_page='dashboard' %}{% include "rides/_incoming_offers.html" %}{% endwith %}
+    </div>
+</div>
+<script src="{{ url_for('static', filename='incoming.js') }}"></script>
+{% endif %}
+<h6 class="mt-3 text-muted">Service bookings</h6>
 {% if incoming %}
 <div class="table-responsive"><table class="table table-sm">
     <thead><tr><th>Service</th><th>Buyer</th><th>Status</th><th>Token</th><th>Action</th></tr></thead>
@@ -74,4 +137,5 @@
 {% else %}
 <p>No incoming requests.</p>
 {% endif %}
+{% endif %}{# is_seller #}
 {% endblock %}

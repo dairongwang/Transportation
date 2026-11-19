@@ -89,6 +89,11 @@ def init_throttling(app) -> None:
     @app.errorhandler(429)
     def _too_many(exc):
         retry = getattr(exc, "retry_after", None)
+        if request.path.startswith("/api/") or request.is_json:
+            from flask import jsonify  # JSON clients (fetch) get JSON, not a redirect to an HTML page
+
+            message = getattr(exc, "description", None) or "Too many requests. Please wait a moment."
+            return jsonify(error=message, retry_after=retry), 429
         if request.method == "POST" and request.endpoint:
             flash("Too many attempts from your network. Please wait a minute and try again.", "error")
             # Show the same page again rather than a bare error

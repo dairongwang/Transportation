@@ -1,0 +1,4 @@
+# Load-test tooling only (not needed to run the app).
+aiohttp>=3.9     # asynchronous HTTP client: thousands of concurrent virtual users from one process
+psutil>=5.9      # CPU / memory sampling of the server processes
+gunicorn>=22.0   # multi-process production server used for the measurements (Linux / macOS)

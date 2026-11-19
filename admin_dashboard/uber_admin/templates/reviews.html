@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "_macros.html" import badge, bgc_tabs %}
+{% block title %}Background checks</div>
+{% endblock %}
+{% block content %}
+<h2>🛡 Background checks</h2>
+{{ bgc_tabs(sub, summary) }}
+<h4>Background-check reports</h4>
+<ul class="nav nav-pills mb-2">
+    {% for key, label in filters.items() %}
+    <li class="nav-item"><a class="nav-link {% if key == status %}active{% endif %}" href="{{ url_for('views.reviews', status=key, q=q) }}">{{ label }}</a></li>
+    {% endfor %}
+</ul>
+<form class="row g-2 mb-3" method="get">
+    <input type="hidden" name="status" value="{{ status }}">
+    <div class="col-auto"><input name="q" class="form-control form-control-sm" placeholder="username, e-mail, last name, reference" value="{{ q }}"></div>
+    <div class="col-auto"><button class="btn btn-sm btn-outline-primary">Search</button></div>
+</form>
+<div data-live="list">
+<table class="table table-sm table-hover small" id="reviews-table">
+    <thead><tr><th>#</th><th>User</th><th>Legal name</th><th>Package</th><th>Status</th><th>Submitted</th><th>Decided by</th><th></th></tr></thead>
+    <tbody>
+    {% for c in data['items'] %}
+    <tr>
+        <td>{{ c.id }}</td>
+        <td>{{ c.user.username }}<br><span class="text-muted">{{ c.user.email }}</span></td>
+        <td>{{ c.legal_name }}</td>
+        <td>{{ c.package }}</td>
+        <td>{{ badge(c.status) }}{% if c.held_for_review %} <span class="badge bg-info">dispute re-check</span>{% endif %}</td>
+        <td>{{ c.submitted_at|dt }}</td>
+        <td>{{ c.adjudicated_by or '—' }}</td>
+        <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('views.review_detail', check_id=c.id) }}">Open</a></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="8" class="text-muted">Nothing here.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+<p class="small text-muted">{{ data.total }} report(s).
+    {% if page > 1 %}<a href="{{ url_for('views.reviews', status=status, q=q, page=page - 1) }}">← previous</a>{% endif %}
+    {% if data.offset + data['items']|length < data.total %}<a href="{{ url_for('views.reviews', status=status, q=q, page=page + 1) }}">next →</a>{% endif %}</p>
+{% endblock %}

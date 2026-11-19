@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% from "_macros.html" import badge %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<h2>👥 Users</h2>
+<form class="row g-2 align-items-end mb-3" method="get" id="user-filters">
+    <div class="col-sm-6 col-md-3 col-xl-2"><label class="form-label small mb-0" for="q">User name</label>
+        <input id="q" name="q" class="form-control form-control-sm" placeholder="username, name or e-mail" value="{{ form.q }}" maxlength="80"></div>
+    <div class="col-sm-6 col-md-3 col-xl-2"><label class="form-label small mb-0" for="role">Role</label>
+        <select id="role" name="role" class="form-select form-select-sm">
+            {% for key, label in roles.items() %}<option value="{{ key }}" {% if key == form.role %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select></div>
+    <div class="col-sm-6 col-md-3 col-xl-2"><label class="form-label small mb-0" for="status">Status</label>
+        <select id="status" name="status" class="form-select form-select-sm">
+            {% for key, label in statuses.items() %}<option value="{{ key }}" {% if key == form.status %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select></div>
+    <div class="col-6 col-md-2 col-xl-1"><label class="form-label small mb-0" for="min_age">Age from</label>
+        <input id="min_age" name="min_age" type="number" min="0" max="150" class="form-control form-control-sm" value="{{ form.min_age }}"></div>
+    <div class="col-6 col-md-2 col-xl-1"><label class="form-label small mb-0" for="max_age">Age to</label>
+        <input id="max_age" name="max_age" type="number" min="0" max="150" class="form-control form-control-sm" value="{{ form.max_age }}"></div>
+    <div class="col-sm-6 col-md-3 col-xl-2"><label class="form-label small mb-0" for="sort">Sort</label>
+        <select id="sort" name="sort" class="form-select form-select-sm">
+            {% for key, label in sorts.items() %}<option value="{{ key }}" {% if key == form.sort %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select></div>
+    <div class="col-auto"><button class="btn btn-sm btn-primary">Apply</button>
+        {% if filtered %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('views.users') }}">Reset</a>{% endif %}</div>
+</form>
+<p class="small text-muted">Status = the account's background-check standing (only <em>Active</em> users may use ServiceUber).
+    Age comes from the date of birth of the user's accepted background check, which the dashboard never receives;
+    users without a check have no age and are left out when an age range is set.</p>
+
+<div data-live="list">
+<div class="table-responsive">
+<table class="table table-sm table-hover small" id="users-table">
+    <thead><tr><th>#</th><th>User</th><th>E-mail</th><th>Role</th><th>Age</th><th>Status</th><th>Driving</th>
+        <th>Sign-in</th><th>Joined</th><th>Last login</th></tr></thead>
+    <tbody>
+    {% for u in data['items'] %}
+    <tr>
+        <td>{{ u.id }}</td>
+        <td><a href="{{ url_for('views.user_detail', user_id=u.id) }}">{{ u.username }}</a>
+            {% if u.display_name %}<br><span class="text-muted">{{ u.display_name }}</span>{% endif %}</td>
+        <td>{{ u.email }}{% if not u.email_verified %} <span class="text-muted" title="e-mail not verified">(unverified)</span>{% endif %}</td>
+        <td>{{ u.role }}</td>
+        <td>{{ u.age if u.age is not none else '—' }}</td>
+        <td>{{ badge(u.state) }}{% if u.locked %} <span class="badge bg-dark">locked</span>{% endif %}</td>
+        <td>{% if u.driver %}{{ u.driver.vehicle }} {% if u.driver.online and u.can_drive %}<span class="badge bg-success">online</span>{% endif %}
+            {% if not u.can_drive %}<span class="badge bg-secondary" title="no valid driver background check">cannot drive</span>{% endif %}{% else %}—{% endif %}</td>
+        <td>{{ 'password' if u.password_login else '' }}{{ ' + ' if u.password_login and u.social_login else '' }}{{ 'social' if u.social_login else '' }}
+            {% if u.mfa_enabled %}<span class="badge bg-success" title="two-factor authentication on">2FA</span>{% endif %}</td>
+        <td>{{ u.created_at|dt }}</td>
+        <td>{{ u.last_login_at|dt }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="10" class="text-muted">No users match these filters.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+<p class="small text-muted" id="users-total">{{ data.total }} user(s){% if filtered %} match{% endif %}.
+    {% if page > 1 %}<a href="{{ url_for('views.users', page=page - 1, **args) }}">← previous</a>{% endif %}
+    {% if data.offset + data['items']|length < data.total %}<a href="{{ url_for('views.users', page=page + 1, **args) }}">next →</a>{% endif %}</p>
+</div>
+{% endblock %}

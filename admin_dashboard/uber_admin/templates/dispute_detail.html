@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "_macros.html" import badge, bgc_tabs, check_card, decision_form %}
+{% block title %}Dispute #{{ data.dispute.id }}{% endblock %}
+{% block content %}
+{{ bgc_tabs(sub, summary) }}
+{% set d = data.dispute %}
+{# Live regions: re-rendered in place when ServiceUber pushes a change (static/live.js). #}
+<div data-live="detail">
+<h2>Dispute #{{ d.id }} — {{ d.user.username }} {{ badge(d.status) }}</h2>
+<p class="text-muted small">{{ d.user.email }} · raised {{ d.created_at|dt }}
+    {% if d.decided_at %} · decided {{ d.decided_at|dt }} by <strong>{{ d.decided_by }}</strong>{% endif %}</p>
+<h5>The user's explanation</h5>
+<p class="statement" id="statement">{{ d.statement }}</p>
+{% if d.decision_note %}<p><strong>Decision note:</strong> {{ d.decision_note }}</p>{% endif %}
+<div class="row g-3">
+    <div class="col-lg-6">{{ check_card(d.original_check, 'Original (rejected)') }}</div>
+    <div class="col-lg-6">{% if d.recheck %}{{ check_card(d.recheck, 'Re-check for this dispute') }}{% endif %}</div>
+</div>
+{% if d.status == 'rechecking' %}
+<div class="alert alert-info mt-3">The re-check is still running at the provider. You can decide once its result is in -
+    this page updates by itself when it arrives.</div>
+{% endif %}
+</div>
+{# replaced only when the dispute's state changes (keeps a note being typed) #}
+<div data-live="form" data-live-key="{{ d.status }}">
+{{ decision_form(url_for('views.dispute_decision', dispute_id=d.id), d.allowed_decisions, 'this dispute') }}
+{% if d.status == 'under_review' %}<p class="small text-muted mt-2">Approve → the user passes (the re-check becomes clear). Reject → the rejection stands; the user is told your note.</p>{% endif %}
+</div>
+{% endblock %}

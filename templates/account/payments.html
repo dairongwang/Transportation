@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Payment methods - ServiceUber{% endblock %}
+{% set kind_icon = {'card': '💳', 'stripe': '🟣', 'paypal': '🅿️'} %}
+{% block content %}
+<h2>👤 Account</h2>
+{% set active = 'payments' %}{% include "account/_nav.html" %}
+
+{% if not can_pay %}
+<div class="alert alert-info">Seller-only accounts do not pay for rides, so payment methods are not available. Register a buyer or “both” account to ride.</div>
+{% else %}
+
+{% if failed_rides %}
+<div class="alert alert-danger">
+    <strong>Payment failed</strong> for {{ failed_rides|length }} completed ride(s). Retry with another method:
+    {% for r in failed_rides %}
+    <form method="post" action="{{ url_for('account.retry', ride_id=r.id) }}" class="d-flex flex-wrap gap-2 align-items-center mt-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <span>Ride #{{ r.id }} — ${{ "%.2f"|format(r.fare) }}</span>
+        <select name="payment_method_id" class="form-select form-select-sm w-auto">
+            {% for m in methods %}<option value="{{ m.id }}" {% if m.is_default %}selected{% endif %}>{{ m.display }}</option>{% endfor %}
+        </select>
+        <button class="btn btn-sm btn-danger" {% if not methods %}disabled{% endif %}>Retry payment</button>
+    </form>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="row g-3">
+    <div class="col-lg-7">
+        <h4>Your payment methods <span class="badge bg-secondary">{{ methods|length }}/{{ max_methods }}</span></h4>
+        {% if methods %}
+        <div class="list-group mb-3">
+            {% for m in methods %}
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                    <div>
+                        <span class="fs-5">{{ kind_icon.get(m.kind, '') }} {{ m.display }}</span>
+                        {% if m.is_default %}<span class="badge bg-success">default</span>{% endif %}
+                        {% if m.is_verified %}<span class="badge bg-primary" title="Validated with a small hold that was voided">✓ verified</span>{% else %}<span class="badge bg-warning text-dark">unverified</span>{% endif %}
+                        {% if m.is_expired %}<span class="badge bg-danger">expired</span>{% endif %}
+                        <br><small class="text-muted">
+                            {% if m.label %}“{{ m.label }}” · {% endif %}{{ m.kind_label }}
+                            {% if m.kind == 'card' %} · exp {{ m.expiry }} · {{ m.billing_name }}{% endif %}
+                            · added {{ m.created_at.strftime('%Y-%m-%d') }}
+                            {% if m.verified_at %} · validated {{ m.verified_at.strftime('%Y-%m-%d %H:%M') }} UTC{% endif %}
+                            · token <code title="Card-on-file token id (prefix + last 6 chars); the card number is not stored">{{ m.token_hint }}</code>
+                        </small>
+                    </div>
+                    <div class="d-flex gap-1 flex-wrap">
+                        {% if not m.is_default %}
+                        <form method="post" action="{{ url_for('account.make_default', method_id=m.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button class="btn btn-sm btn-outline-success">Make default</button>
+                        </form>
+                        {% endif %}
+                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('account.edit_method', method_id=m.id) }}">Edit</a>
+                        <form method="post" action="{{ url_for('account.validate', method_id=m.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button class="btn btn-sm btn-outline-secondary" title="Place a small temporary hold and void it">{{ 'Validate again' if m.is_verified else 'Validate' }}</button>
+                        </form>
+                        <form method="post" action="{{ url_for('account.delete_method', method_id=m.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button class="btn btn-sm btn-outline-danger">Delete</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted">No payment methods yet. Rides are settled in cash until you add one.</p>
+        {% endif %}
+
+        <h5>Add a payment method</h5>
+        <div class="d-flex flex-wrap gap-2">
+            <a class="btn btn-primary" href="{{ url_for('account.add_card') }}">💳 Credit / debit card</a>
+            <form method="post" action="{{ url_for('account.connect', provider='stripe') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-outline-dark">🟣 Connect Stripe</button>
+            </form>
+            <form method="post" action="{{ url_for('account.connect', provider='paypal') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-outline-dark">🅿️ Connect PayPal</button>
+            </form>
+        </div>
+        <p class="small text-muted mt-2">🔒 Card numbers never reach ServiceUber: your browser tokenises the card with the payment vault ({{ payments_mode() }} mode), and we store only a
+            <strong>card-on-file token ID</strong> (encrypted at rest, bound to your account) plus brand, last four digits and expiry. Every charge uses the token ID.
+            {% if validation_amount > 0 %}Every new method is <strong>validated with a temporary {{ config.PAYMENT_CURRENCY }} {{ "%.2f"|format(validation_amount) }} hold that is voided immediately</strong> — nothing is charged; it may show as "pending" on a statement for a few days.{% endif %}
+            When you pick a driver, <strong>their quote + {{ "%.0f"|format(config.RIDE_PREAUTH_FACTOR * 100 - 100) }}%</strong> is pre-authorised (“held”) on the method; the hold is captured for the actual fare when the ride ends, or released if the ride does not happen.</p>
+    </div>
+
+    <div class="col-lg-5">
+        <h4>Recent transactions</h4>
+        {% if transactions %}
+        <div class="table-responsive"><table class="table table-sm align-middle">
+            <thead><tr><th>When (UTC)</th><th>What</th><th>Amount</th><th>Status</th></tr></thead>
+            <tbody>
+            {% for t in transactions %}
+            <tr>
+                <td class="text-nowrap">{{ t.created_at.strftime('%m-%d %H:%M') }}</td>
+                <td>{% if t.kind == 'refund' %}↩ Refund{% if t.ride_id %} · {% endif %}{% endif %}{% if t.ride_id %}<a href="{{ url_for('rides.ride_detail', ride_id=t.ride_id) }}">Ride #{{ t.ride_id }}</a>{% else %}{{ t.description }}{% endif %}
+                    {% if t.kind == 'refund' and t.refund_reason %}<br><small class="text-muted">{{ t.refund_reason }}</small>{% endif %}
+                    <br><small class="text-muted">{{ t.payment_method.display if t.payment_method else '—' }}</small></td>
+                <td class="text-nowrap {{ 'text-success' if t.kind == 'refund' and t.status == 'succeeded' else '' }}">{{ '+' if t.kind == 'refund' else '' }}${{ "%.2f"|format(t.amount) }}</td>
+                <td><span class="badge bg-{{ 'success' if t.status in ('succeeded', 'captured') else 'warning text-dark' if t.status == 'held' else 'secondary' if t.status in ('voided', 'released') else 'danger' }}" title="{{ {'held': 'Pre-authorisation hold - not a charge', 'captured': 'Hold settled for the actual fare', 'released': 'Hold released, nothing charged', 'voided': 'Validation hold, voided'}.get(t.status, '') }}">{{ t.status }}</span>
+                    {% if t.failure_reason %}<br><small class="text-danger">{{ t.failure_reason.replace('_', ' ') }}</small>{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table></div>
+        {% else %}<p class="text-muted">No transactions yet.</p>{% endif %}
+
+        {% if config.ENABLE_DEV_TOOLS and payments_mode() == 'fake' %}
+        <div class="alert alert-warning small mt-3">
+            <strong>Fake gateway test cards</strong> (any expiry in the future, any CVC):<br>
+            <code>4242 4242 4242 4242</code> Visa ✓ · <code>5555 5555 5555 4444</code> Mastercard ✓ · <code>3782 822463 10005</code> Amex ✓ (4-digit CVC)<br>
+            <code>4000 0000 0000 0341</code> validates, but every ride charge is declined · <code>4000 0000 0000 9979</code> low balance: validates, but refuses holds above $5 (ride pre-authorisation fails)<br>
+            <code>4000 0000 0000 0002</code> validation hold declined (cannot be added) · <code>4000 0000 0000 9995</code> insufficient funds (cannot be added)<br>
+            <code>4000 0000 0000 0069</code> expired · <code>4000 0000 0000 0127</code> wrong CVC · <code>4000 0000 0000 0119</code> processing error (all rejected on add)<br>
+            Wallets: an account e-mail containing <code>declined</code> fails validation; one containing <code>declined.later</code> links but charges fail.
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}

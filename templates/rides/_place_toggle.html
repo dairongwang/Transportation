@@ -1,0 +1,10 @@
+{# "Show places as" preference: landmark names or GPS coordinates. Expects nothing; uses request.path as the return URL. #}
+<form method="post" action="{{ url_for('rides.set_location_display') }}" class="d-inline-flex align-items-center gap-1 small" title="How pickup / drop-off places are displayed">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ request.full_path.rstrip('?') }}">
+    <span class="text-muted">Show places as:</span>
+    <div class="btn-group btn-group-sm" role="group" aria-label="Location display">
+        <button class="btn {{ 'btn-secondary' if location_display() == 'landmark' else 'btn-outline-secondary' }}" name="mode" value="landmark">🏙 Landmark</button>
+        <button class="btn {{ 'btn-secondary' if location_display() == 'gps' else 'btn-outline-secondary' }}" name="mode" value="gps">🛰 GPS</button>
+    </div>
+</form>

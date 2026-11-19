@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{% block title %}Ride #{{ ride.id }} - ServiceUber{% endblock %}
+{% set status_colors = {'searching': 'secondary', 'offered': 'warning text-dark', 'accepted': 'primary',
+                        'in_progress': 'info text-dark', 'completed': 'success', 'cancelled': 'dark', 'no_drivers': 'danger'} %}
+{% set offer_colors = {'ranked': 'light text-dark', 'pending': 'warning text-dark', 'accepted': 'success',
+                       'declined': 'danger', 'expired': 'secondary', 'skipped': 'secondary'} %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap" id="ride-page" data-ride-id="{{ ride.id }}" data-status="{{ ride.status }}"
+     data-events-url="{{ url_for('rides.events_ride', ride_id=ride.id) }}">
+    <h2>Ride #{{ ride.id }}
+        <span class="badge bg-{{ status_colors.get(ride.status, 'secondary') }}">{{ ride.status.replace('_', ' ') }}</span>
+        {% if not ride.is_terminal %}<span class="badge bg-secondary" id="ride-live-status" title="Changes are pushed to this page - no refresh needed">connecting…</span>{% endif %}
+    </h2>
+    <span class="d-flex gap-2">
+        {% if chat_room %}<a class="btn btn-sm {{ 'btn-success' if chat_room.is_open else 'btn-outline-secondary' }}" href="#ride-chat">💬 Chat{% if chat_room.is_open %} with {{ chat_room.other_party(current_user).username }}{% endif %}</a>{% endif %}
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('rides.my_rides') }}">All my rides</a>
+    </span>
+</div>
+
+<div class="row mt-3">
+    <div class="col-md-5">
+        <div class="card mb-3">
+            <div class="card-body">
+                {% for label, lat, lng, what in [(ride.pickup_address, ride.pickup_lat, ride.pickup_lng, 'Pickup'), (ride.dropoff_address, ride.dropoff_lat, ride.dropoff_lng, 'Drop-off')] %}
+                <p class="mb-1"><strong>{{ what }}:</strong> {{ place(label, lat, lng) }}
+                    {% if location_display() == 'landmark' %}<small class="text-muted">({{ "%.5f"|format(lat) }}, {{ "%.5f"|format(lng) }})</small>
+                    {% elif not is_coords(label) %}<small class="text-muted">({{ label }})</small>{% endif %}</p>
+                {% endfor %}
+                <p class="mb-2">{% include "rides/_place_toggle.html" %}</p>
+                <p class="mb-1"><strong>Trip:</strong> {{ "%.1f"|format(ride.trip_distance_km) }} km, about {{ "%.0f"|format(ride.trip_duration_min) }} min</p>
+                <p class="mb-1"><strong>Rider:</strong> {{ ride.rider.username }}</p>
+                <p class="mb-1"><strong>Dispatch:</strong> {{ 'automatic (best match first)' if ride.auto_dispatch else 'manual (rider picks)' }}</p>
+                {% if ride.driver %}
+                <hr>
+                <p class="mb-1"><strong>Driver:</strong> {{ ride.driver.user.username }} — {{ ride.driver.vehicle }}{% if ride.driver.plate %} ({{ ride.driver.plate }}){% endif %}</p>
+                <p class="mb-1"><strong>Fare:</strong> ${{ "%.2f"|format(ride.fare) }}</p>
+                {% endif %}
+                {% if not is_rider %}
+                <p class="mb-1"><strong>Payment:</strong> {{ 'card on file, charged automatically' if ride.payment_method else 'cash' }}
+                    {% if ride.payment_status == 'paid' %}<span class="badge bg-success">paid</span>{% elif ride.payment_status == 'cash' %}<span class="badge bg-secondary">cash</span>{% endif %}</p>
+                {% else %}
+                <p class="mb-1"><strong>Payment:</strong>
+                    {{ ride.payment_method.display if ride.payment_method else 'Cash' }}
+                    {% if ride.payment_status == 'paid' %}<span class="badge bg-success">paid</span>
+                    {% elif ride.payment_status == 'failed' %}<span class="badge bg-danger">payment failed</span>
+                    {% elif ride.payment_status == 'cash' %}<span class="badge bg-secondary">cash</span>
+                    {% elif ride.payment_method and ride.driver %}<span class="badge bg-light text-dark">charged on completion</span>{% endif %}
+                    {% if ride.payment_token %}<br><small class="text-muted">ref <code>{{ ride.payment_token }}</code> (dummy, no real charge)</small>{% endif %}</p>
+                {# ---- pre-authorisation: reserved when the driver was picked ---- #}
+                {% if ride.preauth_status %}
+                <p class="mb-1"><strong>Reserved:</strong>
+                    {% if ride.preauth_status == 'held' %}
+                        ${{ "%.2f"|format(ride.preauth_amount) }} <span class="badge bg-warning text-dark" title="Authorisation hold on your payment method">on hold</span>
+                        <br><small class="text-muted">estimate ${{ "%.2f"|format(ride.estimated_fare or (ride.preauth_amount / preauth_factor())) }} + {{ "%.0f"|format(preauth_factor() * 100 - 100) }}% · only the actual fare is charged when the ride ends; the rest is released · ref <code>{{ ride.preauth_ref }}</code></small>
+                    {% elif ride.preauth_status == 'captured' %}
+                        ${{ "%.2f"|format(ride.preauth_amount) }} <span class="badge bg-success">captured ${{ "%.2f"|format(ride.fare or 0) }}</span>
+                        <br><small class="text-muted">the remaining ${{ "%.2f"|format((ride.preauth_amount or 0) - (ride.fare or 0)) }} of the hold was released</small>
+                    {% elif ride.preauth_status == 'released' %}
+                        ${{ "%.2f"|format(ride.preauth_amount) }} <span class="badge bg-secondary">released</span>
+                    {% elif ride.preauth_status == 'failed' %}
+                        ${{ "%.2f"|format(ride.preauth_amount) }} <span class="badge bg-danger">hold refused</span>
+                        <br><small class="text-danger">{{ ride.payment_method.display if ride.payment_method else 'The payment method' }} did not authorise the reservation. Change the payment method below, then pick a driver again.</small>
+                    {% endif %}
+                </p>
+                {% endif %}
+                {% endif %}{# is_rider #}
+                {% if can_change_payment %}
+                <form method="post" action="{{ url_for('rides.change_payment', ride_id=ride.id) }}" class="d-flex flex-wrap gap-2 align-items-center mt-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <select name="payment" class="form-select form-select-sm w-auto" aria-label="Payment method for this ride">
+                        {% for m in rider_methods %}
+                        <option value="{{ m.id }}" {% if ride.payment_method_id == m.id %}selected{% endif %} {% if m.is_expired %}disabled{% endif %}>{{ m.display }}{% if m.is_default %} (default){% endif %}</option>
+                        {% endfor %}
+                        <option value="cash" {% if not ride.payment_method %}selected{% endif %}>Cash</option>
+                    </select>
+                    <button class="btn btn-sm btn-outline-primary">{{ 'Change payment & retry' if ride.preauth_status == 'failed' else 'Change payment' }}</button>
+                </form>
+                {% endif %}
+                {% if is_rider and ride.payment_status == 'failed' %}
+                <form method="post" action="{{ url_for('account.retry', ride_id=ride.id) }}" class="d-flex flex-wrap gap-2 align-items-center mt-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ url_for('rides.ride_detail', ride_id=ride.id) }}">
+                    {% if rider_methods %}
+                    <select name="payment_method_id" class="form-select form-select-sm w-auto">
+                        {% for m in rider_methods %}<option value="{{ m.id }}" {% if m.is_default %}selected{% endif %}>{{ m.display }}</option>{% endfor %}
+                    </select>
+                    <button class="btn btn-sm btn-danger">Retry payment</button>
+                    {% else %}
+                    <a class="btn btn-sm btn-danger" href="{{ url_for('account.payments') }}">Add a payment method to retry</a>
+                    {% endif %}
+                </form>
+                {% endif %}
+                {% if ride.rider_rating %}<p class="mb-0"><strong>Your rating:</strong> {{ '★' * ride.rider_rating }}{{ '☆' * (5 - ride.rider_rating) }}</p>{% endif %}
+            </div>
+        </div>
+
+        {# ---------------- select a driver -> Order ---------------- #}
+        {% if is_rider and ride.awaiting_order and ride.offers %}
+            {% set chosen = ride.selected_offer %}
+            <div class="card mb-3 {{ 'border-primary' if chosen else 'border-secondary' }}" id="order-box">
+                <div class="card-body">
+                    {% if chosen %}
+                    <h5 class="card-title mb-1">Your choice: {{ chosen.driver.user.username }}
+                        <span class="badge bg-primary">#{{ chosen.rank }} in ranking</span></h5>
+                    <p class="mb-2">{{ chosen.driver.vehicle }}{% if chosen.driver.plate %} ({{ chosen.driver.plate }}){% endif %} ·
+                        {{ "%.1f"|format(chosen.distance_km) }} km away, ~{{ "%.0f"|format(chosen.eta_min) }} min to pickup ·
+                        {{ "%.1f"|format(chosen.rating) }} ★<br>
+                        <strong>Quoted fare: ${{ "%.2f"|format(chosen.price) }}</strong>
+                        {% if ride.payment_method %}<br><small class="text-muted">Ordering reserves <strong>${{ "%.2f"|format(preauth_amount(chosen.price)) }}</strong>
+                            (quote + {{ "%.0f"|format(preauth_factor() * 100 - 100) }}%) on {{ ride.payment_method.display }}; you pay only the actual fare.</small>
+                        {% else %}<br><small class="text-muted">Cash ride - nothing is reserved.</small>{% endif %}</p>
+                    <form method="post" action="{{ url_for('rides.place_order', ride_id=ride.id) }}" class="d-flex flex-wrap gap-2 align-items-center">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-success btn-lg" id="order-button">🚕 Order</button>
+                        <small class="text-muted">Not sure? Select a different driver in the list - your choice is final once you order.
+                            Once you order, a chat with the driver opens on this page so you can agree on where to meet.</small>
+                    </form>
+                    {% else %}
+                    <h5 class="card-title mb-1">Choose your driver</h5>
+                    <p class="mb-0 text-muted">Press <strong>Select</strong> next to a driver in the ranked list, then <strong>Order</strong> to confirm.
+                        You can change your selection as often as you like before ordering.</p>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+
+        {# ---------------- actions ---------------- #}
+        {% if is_rider %}
+            {% if ride.status == 'no_drivers' %}
+                <div class="alert alert-danger">No driver could be found. <a href="{{ url_for('rides.request_ride') }}" class="alert-link">Try again</a>.</div>
+            {% elif ride.status in ('searching', 'offered', 'accepted') %}
+                <form method="post" action="{{ url_for('rides.cancel_ride', ride_id=ride.id) }}" class="mb-3">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-outline-danger">Cancel ride</button>
+                </form>
+            {% elif ride.status == 'completed' and not ride.rider_rating %}
+                <form method="post" action="{{ url_for('rides.rate_ride', ride_id=ride.id) }}" class="card card-body mb-3">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <label class="form-label">Rate your driver</label>
+                    <div class="d-flex gap-2">
+                        <select name="stars" class="form-select w-auto">
+                            {% for s in [5, 4, 3, 2, 1] %}<option value="{{ s }}">{{ '★' * s }}</option>{% endfor %}
+                        </select>
+                        <button class="btn btn-success">Submit rating</button>
+                    </div>
+                </form>
+            {% endif %}
+        {% elif ride.driver and ride.driver.user_id == current_user.id %}
+            <div class="d-flex gap-2 mb-3">
+                {% if ride.status == 'accepted' %}
+                <form method="post" action="{{ url_for('rides.driver_ride_action', ride_id=ride.id, action='start') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-primary">Start ride (rider picked up)</button>
+                </form>
+                {% elif ride.status == 'in_progress' %}
+                <form method="post" action="{{ url_for('rides.driver_ride_action', ride_id=ride.id, action='complete') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-success">Complete ride</button>
+                </form>
+                {% endif %}
+                {% if ride.status in ('accepted', 'in_progress') %}
+                <form method="post" action="{{ url_for('rides.cancel_ride', ride_id=ride.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-outline-danger">{{ 'End ride' if ride.status == 'in_progress' else 'Give ride back' }}</button>
+                </form>
+                {% endif %}
+            </div>
+        {% endif %}
+
+        {# ---------------- demo driver bots ---------------- #}
+        {% if config.ENABLE_DEV_TOOLS and (bots_pending or bot_driving) %}
+        <div class="alert alert-warning small">
+            <strong>Demo fleet:</strong> the {{ 'driver being asked' if bots_pending else 'assigned driver' }} is a
+            bot (<code>dummy_driver_*</code>). Nobody is logged in as them, so simulate their phone:
+            <form method="post" action="{{ url_for('dev.rides_simulate') }}" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="ride_id" value="{{ ride.id }}">
+                {% if bots_pending %}
+                <button name="action" value="respond" class="btn btn-sm btn-warning">Let the driver answer</button>
+                {% else %}
+                <button name="action" value="advance" class="btn btn-sm btn-warning">{{ 'Driver picks you up' if ride.status == 'accepted' else 'Driver completes the ride' }}</button>
+                {% endif %}
+            </form>
+        </div>
+        {% endif %}
+        {% if ride.status == 'offered' and ride.pending_offer %}
+        <p class="text-muted small">Order placed: offer to <strong>{{ ride.pending_offer.driver.user.username }}</strong> expires at
+            {{ ride.pending_offer.expires_at.strftime('%H:%M:%S') }} UTC; on timeout{{ ' the next driver is asked automatically' if ride.auto_dispatch else ' you can pick another driver' }}.
+            You will be told here the moment the driver answers.</p>
+        {% endif %}
+    </div>
+
+    <div class="col-md-7">
+        {% include "rides/_chat.html" %}
+        <h4>Nearby drivers, ranked</h4>
+        {% if ride.offers %}
+        <p class="text-muted small mb-2">Score = weighted mix of distance to pickup, rating, price and acceptance rate
+            (weights {{ "%.0f"|format(config.RIDE_RANK_WEIGHTS.distance * 100) }}/{{ "%.0f"|format(config.RIDE_RANK_WEIGHTS.rating * 100) }}/{{ "%.0f"|format(config.RIDE_RANK_WEIGHTS.price * 100) }}/{{ "%.0f"|format(config.RIDE_RANK_WEIGHTS.acceptance * 100) }} %), within {{ config.RIDE_SEARCH_RADIUS_KM }} km.
+            {% if is_rider and ride.payment_method %}<br><strong>Reserve</strong> = the driver's quoted price + {{ "%.0f"|format(preauth_factor() * 100 - 100) }}%, pre-authorised on {{ ride.payment_method.display }} when you pick them. You only pay the actual fare; the rest is released when the ride ends.{% endif %}</p>
+        <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead><tr><th>#</th><th>Driver</th><th>Distance</th><th>Rating</th><th>Price</th>{% if is_rider and ride.payment_method %}<th title="Reserved on your payment method when you pick this driver">Reserve</th>{% endif %}<th>Accept.</th><th>Score</th><th>Status</th>{% if is_rider %}<th></th>{% endif %}</tr></thead>
+            <tbody>
+            {% for o in ride.offers %}
+            {% set is_choice = is_rider and ride.awaiting_order and ride.selected_offer_id == o.id and o.status == 'ranked' %}
+            <tr class="{{ 'table-success' if o.status == 'accepted' else 'table-warning' if o.status == 'pending' else 'table-primary' if is_choice else '' }}">
+                <td>{{ o.rank }}</td>
+                <td>{% if o.driver.user_id == current_user.id %}<strong>you</strong>{% else %}{{ o.driver.user.username }}{% endif %}<br><small class="text-muted">{{ o.driver.vehicle }}</small></td>
+                <td>{{ "%.1f"|format(o.distance_km) }} km<br><small class="text-muted">~{{ "%.0f"|format(o.eta_min) }} min</small></td>
+                <td>{{ "%.1f"|format(o.rating) }} ★</td>
+                <td>${{ "%.2f"|format(o.price) }}</td>
+                {% if is_rider and ride.payment_method %}<td class="text-nowrap">${{ "%.2f"|format(preauth_amount(o.price)) }}</td>{% endif %}
+                <td>{{ "%.0f"|format(o.acceptance_rate * 100) }}%</td>
+                <td><span title="score">{{ "%.2f"|format(o.score) }}</span></td>
+                <td><span class="badge bg-{{ offer_colors.get(o.status, 'secondary') }}">{{ o.status }}</span></td>
+                {% if is_rider %}
+                <td class="text-nowrap">
+                    {% if ride.awaiting_order and o.status == 'ranked' %}
+                        {% if is_choice %}
+                        <span class="badge bg-primary">✓ selected</span>
+                        {% else %}
+                        <form method="post" action="{{ url_for('rides.select_driver', ride_id=ride.id, offer_id=o.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button class="btn btn-sm btn-outline-primary" title="{{ 'Change your choice to this driver' if ride.selected_offer else 'Select this driver' }}">{{ 'Change to' if ride.selected_offer else 'Select' }}</button>
+                        </form>
+                        {% endif %}
+                    {% endif %}
+                </td>
+                {% endif %}
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="text-muted">No online drivers were within {{ config.RIDE_SEARCH_RADIUS_KM }} km of the pickup.</p>
+        {% endif %}
+    </div>
+</div>
+<script src="{{ url_for('static', filename='ride_live.js') }}"></script>
+{% endblock %}

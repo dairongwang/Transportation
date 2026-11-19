@@ -74,6 +74,8 @@ Thumbs.db
 # =========================
 .env
 .env.*
+# ...but the DUMMY template must be committed (the launchers copy it to .env)
+!.env.example
 /Stock_DataLoad/bin
 /Stock_DataLoad/obj
 
@@ -90,3 +92,12 @@ config/*.bak
 auth_outbox.jsonl
 instance/auth_outbox.jsonl
 data/
+
+# =========================
+# SQLite concurrency helpers / load tests
+# =========================
+*.writelock
+instance/eventbus/
+instance/loadtest*.db*
+instance/bench_request.db*
+instance/loadtest_server.log

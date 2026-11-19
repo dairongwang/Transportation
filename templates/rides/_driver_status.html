@@ -1,0 +1,82 @@
+{# Driver availability + GPS card. Used on the dashboard and on the Drive page.
+   Expects: driver (DriverProfile), next_page ('dashboard' | 'drive'). #}
+{% set st = driver_status(driver) %}
+<div class="card mb-3 {{ 'border-success' if st.visible else 'border-secondary' }}" id="driver-card"
+     data-location-url="{{ url_for('rides.api_driver_location') }}" data-csrf="{{ csrf_token() }}"
+     data-online="{{ '1' if driver.is_online else '0' }}" data-has-location="{{ '1' if driver.has_location else '0' }}">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span>🚘 Driving
+            {% if st.visible %}<span class="badge bg-success">AVAILABLE - visible to riders</span>
+            {% elif driver.is_online %}<span class="badge bg-warning text-dark">available, but not visible</span>
+            {% else %}<span class="badge bg-secondary">NOT AVAILABLE</span>{% endif %}
+        </span>
+        <form method="post" action="{{ url_for('rides.drive_availability') }}" class="d-inline" id="availability-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="next" value="{{ next_page }}">
+            {# filled in by geolocation.js when the browser has a GPS fix, so one click = position + available #}
+            <input type="hidden" name="lat" id="avail-lat" value=""><input type="hidden" name="lng" id="avail-lng" value="">
+            {% if driver.is_online %}
+            <button class="btn btn-outline-secondary" name="online" value="0">⏸ Stop driving</button>
+            {% else %}
+            <button class="btn btn-success" name="online" value="1" id="go-available">▶ Available to drive</button>
+            {% endif %}
+        </form>
+    </div>
+    <div class="card-body">
+        <p class="mb-2 small {{ 'text-success' if st.visible else 'text-muted' }}">
+            {% if st.visible %}✓ {{ st.reason|capitalize }} (within {{ st.radius_km|round(0)|int }} km, ranked by distance, rating, price and acceptance rate).
+            {% else %}✗ Riders cannot find you: {{ st.reason }}.{% endif %}
+        </p>
+
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            <button type="button" class="btn btn-primary btn-sm" id="gps-button">📍 Use my GPS location</button>
+            <label class="form-check-label small d-flex align-items-center gap-1">
+                <input class="form-check-input mt-0" type="checkbox" id="gps-follow"> keep my location updated while this page is open
+            </label>
+            <span class="small text-muted" id="gps-status"></span>
+        </div>
+        <p class="small text-muted d-none" id="gps-insecure">⚠ The browser only shares GPS on <code>https://</code> or <code>localhost</code>. On a phone over Wi-Fi start the app with <code>HTTPS=1</code> (see README) or use a landmark below.</p>
+
+        <p class="mb-2">
+            <strong>Position:</strong>
+            {% if driver.has_location %}
+            <strong>{{ place(None, driver.lat, driver.lng) }}</strong>
+            {% if location_display() == 'landmark' %}<small class="text-muted">(<code>{{ "%.5f"|format(driver.lat) }}, {{ "%.5f"|format(driver.lng) }}</code>)</small>{% endif %}
+            <small class="text-muted">updated {{ driver.location_updated_at.strftime('%H:%M:%S') }} UTC
+                ({% if st.location_age < 60 %}{{ st.location_age }} s{% else %}{{ st.location_age // 60 }} min{% endif %} ago{% if st.location_age > st.stale_seconds %}, <span class="text-danger">stale</span>{% endif %})</small>
+            {% else %}<span class="text-muted">unknown</span>{% endif %}
+        </p>
+
+        <details class="small">
+            <summary class="text-muted">No GPS? Set a position manually (demo-city landmark or coordinates)</summary>
+            <form method="post" action="{{ url_for('rides.drive_location') }}" class="row g-2 align-items-end mt-1">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="next" value="{{ next_page }}">
+                <div class="col-12 col-sm-5"><label class="form-label mb-0" for="landmark-{{ next_page }}">Landmark</label>
+                    <select id="landmark-{{ next_page }}" name="landmark" class="form-select form-select-sm">
+                        <option value="">— coordinates below —</option>
+                        {% for name in landmark_names() %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+                    </select></div>
+                <div class="col-6 col-sm-3"><label class="form-label mb-0" for="lat-{{ next_page }}">Lat</label>
+                    <input id="lat-{{ next_page }}" name="lat" type="number" step="any" class="form-control form-control-sm" placeholder="40.0000"></div>
+                <div class="col-6 col-sm-3"><label class="form-label mb-0" for="lng-{{ next_page }}">Lng</label>
+                    <input id="lng-{{ next_page }}" name="lng" type="number" step="any" class="form-control form-control-sm" placeholder="-75.0000"></div>
+                <div class="col-12 d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-primary" name="online" value="1">Set position &amp; be available</button>
+                    <button class="btn btn-sm btn-outline-secondary">Set position only</button>
+                </div>
+            </form>
+        </details>
+
+        <div class="mb-2">{% include "rides/_place_toggle.html" %}</div>
+        <hr class="my-2">
+        <p class="mb-0 small">
+            {% if st.pending_count %}<a class="btn btn-sm btn-warning" href="{{ url_for('rides.drive') }}">🔔 {{ st.pending_count }} ride offer{{ 's' if st.pending_count != 1 }} waiting for your answer</a>
+            {% else %}<span class="text-muted">No ride offers right now.</span>{% endif %}
+            <span class="text-muted ms-2">{{ driver.vehicle }}{% if driver.plate %} ({{ driver.plate }}){% endif %} · {{ "%.1f"|format(driver.rating) }} ★ · {{ "%.0f"|format(driver.acceptance_rate * 100) }}% acceptance ·
+                a position older than {{ st.stale_seconds // 60 }} min is ignored</span>
+            {% if next_page == 'dashboard' %}· <a href="{{ url_for('rides.drive') }}">Drive page (offers, profile, prices)</a>{% endif %}
+        </p>
+    </div>
+</div>
+<script src="{{ url_for('static', filename='geolocation.js') }}"></script>

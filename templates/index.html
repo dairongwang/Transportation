@@ -5,6 +5,9 @@
     <div class="col-md-8">
         <h1>Find & Book Services</h1>
         <p class="lead">Like Uber, but for any service — rides, deliveries, cleaning, tutoring, and more.</p>
+        {% if not current_user.is_authenticated or current_user.can_ride %}<a class="btn btn-primary" href="{{ url_for('rides.request_ride') }}">🚕 Request a ride</a>{% endif %}
+        {% if not current_user.is_authenticated or current_user.can_sell %}<a class="btn btn-outline-secondary" href="{{ url_for('rides.drive') }}">🚘 Drive</a>{% endif %}
+        <span class="text-muted small ms-2">Nearby drivers are ranked by distance, rating, price and acceptance rate.</span>
     </div>
     <div class="col-md-4">
         <form action="{{ url_for('search') }}" method="get" class="d-flex">

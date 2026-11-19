@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% from "_macros.html" import badge, bgc_tabs %}
+{% block title %}Disputes</div>
+{% endblock %}
+{% block content %}
+<h2>🛡 Background checks</h2>
+{{ bgc_tabs(sub, summary) }}
+<h4>Disputes</h4>
+<p class="text-muted small">A rejected user disputed the decision. Each dispute first runs a new background check (<em>re-check running</em>);
+    once it is back the dispute waits for a manager (<em>to decide</em>).</p>
+<ul class="nav nav-pills mb-3">
+    {% for key, label in filters.items() %}
+    <li class="nav-item"><a class="nav-link {% if key == status %}active{% endif %}" href="{{ url_for('views.disputes', status=key) }}">{{ label }}</a></li>
+    {% endfor %}
+</ul>
+<div data-live="list">
+<table class="table table-sm table-hover small" id="disputes-table">
+    <thead><tr><th>#</th><th>User</th><th>Status</th><th>Re-check</th><th>Raised</th><th>Decided</th><th>By</th><th></th></tr></thead>
+    <tbody>
+    {% for d in data['items'] %}
+    <tr>
+        <td>{{ d.id }}</td><td>{{ d.user.username }}</td><td>{{ badge(d.status) }}</td>
+        <td>{{ badge(d.recheck_status) if d.recheck_status else '—' }}</td>
+        <td>{{ d.created_at|dt }}</td><td>{{ d.decided_at|dt }}</td><td>{{ d.decided_by or '—' }}</td>
+        <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('views.dispute_detail', dispute_id=d.id) }}">Open</a></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="8" class="text-muted">Nothing here.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+<p class="small text-muted">{{ data.total }} dispute(s).
+    {% if page > 1 %}<a href="{{ url_for('views.disputes', status=status, page=page - 1) }}">← previous</a>{% endif %}
+    {% if data.offset + data['items']|length < data.total %}<a href="{{ url_for('views.disputes', status=status, page=page + 1) }}">next →</a>{% endif %}</p>
+{% endblock %}

@@ -3,3 +3,5 @@ pyotp>=2.9          # cross-checks the stdlib TOTP implementation in tests/test_
 redis>=5.0          # shared rate-limit storage: RATELIMIT_STORAGE_URI=redis://localhost:6379/0
 waitress>=3.0       # production WSGI server for Windows  (waitress-serve --listen=0.0.0.0:8000 app:app)
 gunicorn>=22.0      # production WSGI server for Linux/macOS (gunicorn -w 2 -b 0.0.0.0:8000 app:app)
+PyQt6>=6.6          # optional headless Chromium (QtWebEngine) for scripts/browser_e2e.py
+PyQt6-WebEngine>=6.6  #   - checks in a real browser that pages update live (large download)

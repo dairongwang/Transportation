@@ -10,3 +10,50 @@
 .oauth-icon { display: inline-block; width: 1.6em; font-weight: bold; text-align: center; }
 .oauth-google .oauth-icon { color: #4285f4; }
 .oauth-facebook .oauth-icon { color: #1877f2; }
+
+/* ---------- cross-device (phones / tablets / desktops) ---------- */
+html { -webkit-text-size-adjust: 100%; }
+body { padding-bottom: env(safe-area-inset-bottom); }
+.account-nav .nav-link { white-space: nowrap; }
+.table td, .table th { vertical-align: middle; }
+/* inputs at >=16px stop iOS Safari from zooming in on focus */
+.form-control, .form-select { font-size: 1rem; }
+/* comfortable touch targets on coarse pointers (phones, tablets) */
+@media (pointer: coarse) {
+  .btn, .form-control, .form-select, .nav-link { min-height: 44px; }
+  .btn-sm { min-height: 38px; }
+}
+@media (max-width: 575.98px) {
+  h1 { font-size: 1.6rem; } h2 { font-size: 1.4rem; } h4 { font-size: 1.15rem; }
+  .table { font-size: 0.875rem; }
+  .container { padding-left: 0.75rem; padding-right: 0.75rem; }
+  .navbar-brand { font-size: 1.1rem; }
+  /* stack action buttons full-width on phones */
+  .card-body form .btn-lg { width: 100%; }
+}
+
+/* a freshly arrived ride request (static/incoming.js) */
+@keyframes offer-flash { from { background-color: #ffe08a; } to { background-color: transparent; } }
+.offer-new > td { animation: offer-flash 3s ease-out; }
+
+/* wrapped preformatted text (CSP forbids inline style attributes) */
+.pre-wrap { white-space: pre-wrap; }
+
+/* ---------- rider <-> driver chat (templates/rides/_chat.html, static/chat.js) ---------- */
+.chat-log { max-height: 45vh; min-height: 8rem; overflow-y: auto; display: flex; flex-direction: column; gap: .4rem;
+            padding: .5rem; background: #f8f9fa; border-radius: .375rem; overscroll-behavior: contain; }
+.chat-msg { display: flex; }
+.chat-mine { justify-content: flex-end; }
+.chat-theirs { justify-content: flex-start; }
+.chat-system-row { justify-content: center; }
+.chat-bubble { max-width: 85%; padding: .4rem .7rem; border-radius: 1rem; background: #fff; border: 1px solid #dee2e6;
+               overflow-wrap: anywhere; }
+.chat-mine .chat-bubble { background: #0d6efd; border-color: #0d6efd; color: #fff; border-bottom-right-radius: .25rem; }
+.chat-theirs .chat-bubble { border-bottom-left-radius: .25rem; }
+.chat-meta { font-size: .75rem; color: #6c757d; }
+.chat-mine .chat-meta, .chat-mine .chat-location, .chat-mine .chat-location a { color: rgba(255, 255, 255, .85); }
+.chat-location { font-size: .85rem; margin-top: .15rem; }
+.chat-system { font-size: .8rem; color: #495057; background: #e9ecef; border-radius: .75rem; padding: .2rem .7rem;
+               text-align: center; max-width: 95%; overflow-wrap: anywhere; }
+.chat-system .chat-time { color: #6c757d; }
+#chat-input { resize: vertical; min-height: 44px; }

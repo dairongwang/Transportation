@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}Background check - ServiceUber{% endblock %}
+
+{# Applicant fields shared by the check form and the dispute form (only one is shown at a time). #}
+{% macro applicant_fields(f) -%}
+        <div class="row g-2">
+            <div class="col-sm-6"><label class="form-label" for="legal_first_name">Legal first name</label>
+                <input id="legal_first_name" name="legal_first_name" class="form-control" maxlength="80" required value="{{ f.legal_first_name }}"></div>
+            <div class="col-sm-6"><label class="form-label" for="legal_last_name">Legal last name</label>
+                <input id="legal_last_name" name="legal_last_name" class="form-control" maxlength="80" required value="{{ f.legal_last_name }}"></div>
+            <div class="col-sm-6"><label class="form-label" for="date_of_birth">Date of birth</label>
+                <input id="date_of_birth" name="date_of_birth" type="date" class="form-control" required value="">
+                <div class="form-text">You must be {{ min_age }}+ ({{ min_driver_age }}+ to drive).</div></div>
+        </div>
+        {% if may_drive %}
+        <fieldset class="border rounded p-2 mt-3">
+            <legend class="float-none w-auto px-1 fs-6">🚘 Driving <span class="text-muted small">(optional - only if you want to drive)</span></legend>
+            <div class="row g-2">
+                <div class="col-sm-6"><label class="form-label" for="licence_number">Driving licence number</label>
+                    <input id="licence_number" name="licence_number" class="form-control" maxlength="20" placeholder="DUMMY-DL-1234" value=""></div>
+                <div class="col-sm-6"><label class="form-label" for="licence_region">Issuing state / region</label>
+                    <input id="licence_region" name="licence_region" class="form-control" maxlength="40" placeholder="Demo State" value="{{ f.licence_region }}"></div>
+            </div>
+            <div class="form-text">With a licence you get the <strong>driver</strong> check (adds the motor vehicle record). Without it you can ride, book and post services, but not drive.</div>
+        </fieldset>
+        {% endif %}
+        <div class="alert alert-light border small mt-3 mb-2">
+            <strong>Disclosure.</strong> ServiceUber will obtain a consumer report about you from its background-check provider
+            ({{ provider_mode }} mode). The report covers identity verification, criminal records, sex-offender registries and
+            global watchlists{% if may_drive %}, and - for drivers - your motor vehicle record{% endif %}. A clear result is valid for
+            {{ valid_days }} days; after that you will be asked to renew it. If the report contains information that could lead to
+            your account being refused, you will be told and can dispute it.
+        </div>
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="consent" name="consent" value="yes" required {% if f.consent %}checked{% endif %}>
+            <label class="form-check-label" for="consent">I have read the disclosure and <strong>authorise ServiceUber to obtain my background check</strong>.</label>
+        </div>
+{%- endmacro %}
+
+{% block content %}
+{% set badge = {'clear': 'success', 'pending': 'info', 'consider': 'warning', 'unverified': 'warning', 'rejected': 'danger',
+                'disputed': 'info', 'expired': 'secondary', 'not_started': 'secondary', 'not_required': 'secondary',
+                'rechecking': 'info', 'under_review': 'warning', 'approved': 'success'} %}
+<div class="row justify-content-center" id="background-page" data-live-page="background-check">
+<div class="col-lg-8">
+    <h2>🛡 Background check <span class="badge bg-secondary fs-6 align-middle" id="live-status" title="Changes appear here by themselves - no need to refresh">connecting…</span></h2>
+    <p class="text-muted">For everyone's safety, <strong>every ServiceUber account must pass a background check</strong> before it can
+        request rides, drive, book or offer services. Drivers get an extended check that includes their driving record.</p>
+
+    {# Live regions: replaced in place when the server pushes a change (static/account_live.js). #}
+    <div data-live="status">
+    {# ------------------------------------------------------------ standing #}
+    <div class="card mb-3 border-{{ badge.get(st.state, 'secondary') }}" id="background-status">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span>Your status</span>
+            <span>
+                <span class="badge bg-{{ badge.get(st.state, 'secondary') }}" id="background-state">{{ st.state.replace('_', ' ')|upper }}</span>
+                {% if st.passed %}<span class="badge bg-{{ 'success' if st.can_drive else 'secondary' }}">{{ 'rider + driver' if st.can_drive else 'rider' }}</span>{% endif %}
+            </span>
+        </div>
+        <div class="card-body">
+            <p class="mb-2">{{ st.message }}</p>
+            {% set d = st.decisive or st.latest %}
+            {% if d %}
+            {% if d.status == 'rejected' and d.result_note %}<p class="mb-2"><strong>Reason:</strong> {{ d.result_note }}</p>{% endif %}
+            <p class="small text-muted mb-2">
+                Latest decisive report: <code>{{ d.provider_ref }}</code> · {{ d.package }} package · {{ d.legal_name }}
+                {% if d.licence_last4 %}· licence ••••{{ d.licence_last4 }} ({{ d.licence_region }}){% endif %}
+                {% if d.completed_at %}· completed {{ d.completed_at.strftime('%Y-%m-%d %H:%M') }} UTC{% endif %}
+                {% if d.expires_at %}· valid until {{ d.expires_at.strftime('%Y-%m-%d') }}{% endif %}
+            </p>
+            {% if d.screens %}
+            <ul class="list-group list-group-flush small">
+                {% for key, result in d.screens.items() %}
+                <li class="list-group-item d-flex justify-content-between px-0">
+                    <span>{{ screen_labels.get(key, key) }}</span>
+                    <span class="badge bg-{{ {'clear': 'success', 'pending': 'info', 'consider': 'warning', 'unverified': 'warning'}.get(result, 'secondary') }}">{{ result }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            {% endif %}
+            {% if st.passed %}
+            <a class="btn btn-success mt-3" href="{{ url_for('dashboard') }}">Continue to ServiceUber</a>
+            {% endif %}
+        </div>
+    </div>
+
+    {# ------------------------------------------------------------ dispute in progress #}
+    {% if st.state == 'disputed' and st.dispute %}
+    {% set dp = st.dispute %}
+    <div class="card mb-3 border-info" id="dispute-status">
+        <div class="card-header">⚖ Your dispute #{{ dp.id }} <span class="badge bg-{{ badge.get(dp.status, 'secondary') }}">{{ dp.status.replace('_', ' ') }}</span></div>
+        <div class="card-body">
+            <ol class="mb-2">
+                <li class="text-success">Dispute received {{ dp.created_at.strftime('%Y-%m-%d %H:%M') }} UTC ✓</li>
+                <li class="{{ 'text-success' if dp.status != 'rechecking' else '' }}">New background check
+                    {% if dp.status == 'rechecking' %}<strong>in progress at the provider…</strong>{% else %}completed ✓{% endif %}</li>
+                <li>Manager review {% if dp.status == 'under_review' %}<strong>in progress…</strong>{% else %}(after the new check){% endif %}</li>
+            </ol>
+            <p class="small text-muted mb-0">Your explanation: “{{ dp.statement }}”</p>
+        </div>
+    </div>
+    {% endif %}
+
+    </div>{# /status #}
+
+    {# ------------------------------------------------------------ forms #}
+    {# Only replaced when a DIFFERENT form is needed, so text being typed is never lost. #}
+    {% set form_kind = ('check-' ~ st.state) if st.can_submit else ('dispute' if st.can_dispute else 'none-' ~ st.state) %}
+    <div data-live="forms" data-live-key="{{ form_kind }}">
+    {% if st.can_submit %}
+    <form method="post" class="card card-body mb-3" id="background-form" autocomplete="off">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <h5>{{ 'Add the driver check' if st.state == 'clear' else ('Submit again' if st.latest else 'Start your background check') }}</h5>
+        <p class="small text-muted">We only ask for what the check needs. We <strong>never</strong> ask for a social security / national ID number,
+            a phone number or payment details. Your date of birth and licence number are encrypted at rest.</p>
+        {{ applicant_fields(form) }}
+        <button class="btn btn-primary align-self-start" id="background-submit">Submit background check</button>
+    </form>
+    {% elif st.can_dispute %}
+    <form method="post" action="{{ url_for('background.dispute') }}" class="card card-body mb-3 border-danger" id="dispute-form" autocomplete="off">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <h5>⚖ Dispute this decision</h5>
+        <p class="small">If you believe the decision is wrong - a record that is not yours, an error in the report, a mistake in your
+            details - tell us why. Your dispute is <strong>escalated to a new background check</strong> (correct your details below if
+            needed), and then <strong>a manager reviews</strong> your explanation, the original report and the new one and decides to
+            approve or reject. You can dispute {{ 'once' if max_disputes == 1 else max_disputes ~ ' times' }}; the manager's decision is final.</p>
+        <div class="mb-3">
+            <label class="form-label" for="statement">Why do you dispute the decision?</label>
+            <textarea id="statement" name="statement" class="form-control" rows="4" minlength="{{ statement_min }}" maxlength="{{ statement_max }}" required
+                      placeholder="e.g. The record in the report belongs to someone else with a similar name.">{{ dispute_form.statement }}</textarea>
+            <div class="form-text">{{ statement_min }}-{{ statement_max }} characters. Do not include card numbers or ID numbers.</div>
+        </div>
+        <h6>Details for the new background check</h6>
+        {{ applicant_fields(dispute_form) }}
+        <button class="btn btn-danger align-self-start" id="dispute-submit">Submit dispute &amp; request a new check</button>
+    </form>
+    {% elif st.state == 'consider' %}
+    <div class="alert alert-secondary small">A manager reviews every flagged report. If it is rejected you will be told why and can dispute the decision.</div>
+    {% endif %}
+    </div>{# /forms #}
+
+    {% if provider_mode == 'fake' and config.ENABLE_DEV_TOOLS %}
+    <details class="small mb-3">
+        <summary>🧪 Test identities (fake provider, dev only)</summary>
+        <table class="table table-sm mt-2">
+            <thead><tr><th>Enter</th><th>Result</th></tr></thead>
+            <tbody>
+            <tr><td>any name, {{ min_age }}+ years old</td><td><span class="badge bg-success">clear</span> - you are in</td></tr>
+            <tr><td>last name containing <code>Consider</code> (e.g. <code>Dummy-Consider</code>)</td><td><span class="badge bg-warning text-dark">consider</span> - a manager approves / rejects it in the admin dashboard (separate application)</td></tr>
+            <tr><td>last name containing <code>Pending</code></td><td><span class="badge bg-info">pending</span> - finish it on the <a href="{{ url_for('dev_background.provider_console') }}">fake provider console</a> (signed webhook)</td></tr>
+            <tr><td>last name containing <code>Unverified</code></td><td><span class="badge bg-warning text-dark">unverified</span> - correct and submit again</td></tr>
+            <tr><td>licence number containing <code>SUSPENDED</code></td><td><span class="badge bg-warning text-dark">consider</span> (motor vehicle record)</td></tr>
+            <tr><td>date of birth under {{ min_age }} (or under {{ min_driver_age }} with a licence)</td><td>refused before anything is sent</td></tr>
+            </tbody>
+        </table>
+    </details>
+    {% endif %}
+
+    <div data-live="history">
+    {% if disputes %}
+    <h5>Disputes</h5>
+    <div class="table-responsive"><table class="table table-sm small" id="dispute-history">
+        <thead><tr><th>Raised</th><th>Status</th><th>Decided</th><th>Manager's note</th></tr></thead>
+        <tbody>
+        {% for dp in disputes %}
+        <tr>
+            <td>{{ dp.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td><span class="badge bg-{{ badge.get(dp.status, 'secondary') }}">{{ dp.status.replace('_', ' ') }}</span></td>
+            <td>{{ dp.decided_at.strftime('%Y-%m-%d %H:%M') if dp.decided_at else '—' }}</td>
+            <td>{{ dp.decision_note or '' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% endif %}
+
+    {% if history %}
+    <h5>History</h5>
+    <div class="table-responsive"><table class="table table-sm small">
+        <thead><tr><th>Submitted</th><th>Package</th><th>Status</th><th>Reference</th><th>Note</th></tr></thead>
+        <tbody>
+        {% for c in history %}
+        <tr>
+            <td>{{ c.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>{{ c.package }}{% if c.held_for_review %} <span class="badge bg-info">dispute re-check</span>{% endif %}</td>
+            <td><span class="badge bg-{{ badge.get(c.status, 'secondary') }}">{{ c.status }}</span>{% if c.is_expired %} <span class="badge bg-secondary">expired</span>{% endif %}</td>
+            <td><code>{{ c.provider_ref }}</code></td>
+            <td>{{ c.result_note or '' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% endif %}
+    </div>{# /history #}
+</div>
+</div>
+{% endblock %}

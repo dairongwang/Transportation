@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Request a ride - ServiceUber{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-7">
+        <h2>🚕 Request a ride</h2>
+        <p class="text-muted">We search online drivers near your pickup and rank them by <strong>distance</strong>,
+            <strong>rating</strong>, <strong>price</strong> and <strong>acceptance rate</strong>.</p>
+
+        <form method="post" class="card card-body">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="mb-3">
+                <label class="form-label" for="pickup">Pickup</label>
+                <div class="input-group">
+                    <input type="text" id="pickup" name="pickup" class="form-control" list="landmarks" required
+                           maxlength="200" value="{{ form.pickup }}" placeholder="e.g. Downtown, or 40.0010,-75.0020" autofocus>
+                    <button type="button" class="btn btn-outline-primary" id="pickup-gps" title="Fill in your current GPS coordinates">📍 Use my GPS location</button>
+                </div>
+                <div class="form-text">Drivers who are <em>available</em> within {{ config.RIDE_SEARCH_RADIUS_KM|round(0)|int }} km of the pickup are listed and ranked.</div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="dropoff">Drop-off</label>
+                <input type="text" id="dropoff" name="dropoff" class="form-control" list="landmarks" required
+                       maxlength="200" value="{{ form.dropoff }}" placeholder="e.g. Airport">
+            </div>
+            <datalist id="landmarks">
+                {% for name in landmark_names() %}<option value="{{ name }}">{% endfor %}
+            </datalist>
+            <div class="mb-3">
+                <label class="form-label" for="payment">Pay with</label>
+                <select id="payment" name="payment" class="form-select">
+                    {% for m in methods %}
+                    <option value="{{ m.id }}" {% if form.payment == m.id|string %}selected{% endif %} {% if m.is_expired %}disabled{% endif %}>{{ m.display }}{% if m.label %} — {{ m.label }}{% endif %}{% if m.is_default %} (default){% endif %}{% if m.is_expired %} — expired{% endif %}</option>
+                    {% endfor %}
+                    <option value="cash" {% if form.payment == 'cash' %}selected{% endif %}>Cash</option>
+                </select>
+                <div class="form-text">{% if methods %}When you pick a driver, their quoted price <strong>+ {{ "%.0f"|format(preauth_factor() * 100 - 100) }}%</strong> is reserved (pre-authorised) on the selected method. Only the actual fare is charged when the ride is completed; the rest is released.{% else %}No stored payment method — <a href="{{ url_for('account.payments') }}">add one in your Account tab</a> or pay cash.{% endif %}</div>
+            </div>
+            <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" id="auto_dispatch" name="auto_dispatch"
+                       {% if form.auto_dispatch %}checked{% endif %}>
+                <label class="form-check-label" for="auto_dispatch">
+                    Auto-dispatch: order from the best-ranked driver right away and fall through to the next on decline / timeout.
+                    <span class="text-muted">(leave unticked to select a driver from the ranked list yourself and press Order)</span>
+                </label>
+            </div>
+            <button type="submit" class="btn btn-primary btn-lg">Find drivers</button>
+            <div class="form-text mt-2">Next step: you get a ranked list of nearby drivers, <strong>select</strong> the one you want (change your mind as often as you like), then press <strong>Order</strong>.</div>
+        </form>
+
+        <div class="alert alert-secondary small mt-3">
+            <strong>Maps backend: {{ maps_backend() }}.</strong> Addresses are resolved offline: landmark names
+            ({{ landmark_names()|join(', ') }}) map to fixed points in the fictional demo city, <code>lat,lng</code>
+            pairs are used as-is, and any other text is hashed to a stable point in town. No real geocoding happens.
+        </div>
+    </div>
+</div>
+<script src="{{ url_for('static', filename='geolocation.js') }}"></script>
+{% endblock %}

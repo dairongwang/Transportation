@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "_macros.html" import badge, bgc_tabs, check_card, decision_form %}
+{% block title %}Report #{{ data.check.id }}{% endblock %}
+{% block content %}
+{{ bgc_tabs(sub, summary) }}
+{% set c = data.check %}
+{# Live regions: re-rendered in place when ServiceUber pushes a change (static/live.js). #}
+<div data-live="head">
+<h2>Report #{{ c.id }} — {{ c.user.username }} {{ badge(c.user.state) }}</h2>
+<p class="text-muted small">{{ c.user.email }} · role {{ c.user.role }}{% if c.user.display_name %} · {{ c.user.display_name }}{% endif %}</p>
+</div>
+<div class="row g-3">
+    <div class="col-lg-6">
+        <div data-live="report">
+        {{ check_card(c, 'Report') }}
+        {% if c.recheck_for_dispute %}
+        <div class="alert alert-info mt-3 small">This report is the re-check of
+            <a href="{{ url_for('views.dispute_detail', dispute_id=c.recheck_for_dispute) }}">dispute #{{ c.recheck_for_dispute }}</a>
+            {% if c.held_for_review %} - decide the dispute, not the report.{% endif %}</div>
+        {% endif %}
+        </div>
+        {# replaced only when the possible decisions change (keeps a note being typed) #}
+        <div data-live="form" data-live-key="{{ c.status }}-{{ c.held_for_review }}-{{ c.allowed_decisions|join(',') }}">
+        {{ decision_form(url_for('views.review_decision', check_id=c.id), c.allowed_decisions, 'this report') }}
+        </div>
+    </div>
+    <div class="col-lg-6" data-live="history">
+        <h5>History of {{ c.user.username }}</h5>
+        <table class="table table-sm small">
+            <thead><tr><th>#</th><th>Package</th><th>Status</th><th>Submitted</th><th>Decided by</th></tr></thead>
+            <tbody>
+            {% for h in data.user_checks %}
+            <tr {% if h.id == c.id %}class="table-active"{% endif %}>
+                <td><a href="{{ url_for('views.review_detail', check_id=h.id) }}">{{ h.id }}</a></td><td>{{ h.package }}</td>
+                <td>{{ badge(h.status) }}{% if h.held_for_review %} <span class="badge bg-info">held</span>{% endif %}</td>
+                <td>{{ h.submitted_at|dt }}</td><td>{{ h.adjudicated_by or '—' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% if data.user_disputes %}
+        <h6>Disputes</h6>
+        <ul class="small">
+            {% for d in data.user_disputes %}<li><a href="{{ url_for('views.dispute_detail', dispute_id=d.id) }}">Dispute #{{ d.id }}</a> {{ badge(d.status) }} raised {{ d.created_at|dt }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,357 +1,374 @@
-# ServiceUber — Uber-like Service Marketplace (Python / Flask)
+# ServiceUber — ride hailing + service marketplace (demo)
 
-A simple web app for buying and selling services (rides, deliveries, cleaning, tutoring, …)
-with **two-factor authentication** (authenticator app, e-mail codes, SMS codes), recovery
-codes, trusted devices, **social login with Google / Apple / Facebook (OAuth 2.0)**, **password
-reset that still requires the second factor**, layered brute-force protection (IP rate limits →
-CAPTCHA → account lockout) and an audit log.
+A Flask demo of an Uber-like app: riders request rides, nearby drivers are ranked and asked,
+and — **as soon as the rider places the order — rider and driver get a private, real-time
+chat room** to agree on exactly where to meet. Around that: a small services marketplace,
+two-factor authentication, social login, card-on-file payments with pre-authorisation,
+mandatory background checks, and a separate admin dashboard for managers.
 
-> **All secrets, tokens, API keys, demo passwords and demo identities in this repository are
-> DUMMY placeholders** (`DUMMY_*`, `*.dummy@example.com`, `+1 555-01xx`). `.env.example` ships
-> them so the app runs out of the box for development and testing; **`SECRET_KEY` and
-> `MFA_ENCRYPTION_KEY` must be present in `.env`** (the app refuses to start otherwise) and
-> `APP_ENV=production` refuses any `DUMMY_*` value.
-
-Runs on **Linux, macOS (Intel & Apple Silicon) and Windows** with Python 3.10+ and is used from
-**any browser — desktop, smartphone or tablet**. The dependency set is pure Python (no Pillow,
-no compilers); see [Troubleshooting](#troubleshooting) for the history behind that.
+> **Everything external is fake and offline.** Every secret, token, key, username and password
+> is a `DUMMY` placeholder. Payments, SMS, e-mail, OAuth (Google / Apple / Facebook), maps and
+> background checks are stubs that never leave your machine. No real card numbers or phone
+> numbers are needed anywhere — the only card number you will ever type is the public test
+> card `4242 4242 4242 4242`. `APP_ENV=production` refuses to start with any `DUMMY` value.
 
 ---
 
-## Contents
-1. [Quick start](#1-quick-start)
-2. [Configuration & dummy secrets](#2-configuration--dummy-secrets)
-3. [Testing 2FA in each environment](#3-testing-2fa-in-each-environment)
-4. [Fakes & stubs](#4-fakes--stubs)
-5. [Validating an installation](#5-validating-an-installation)
-6. [Production deployment](#6-production-deployment)
-7. [Troubleshooting](#7-troubleshooting)
-8. [Project layout](#8-project-layout)
+## Quick start
 
----
-
-## 1. Quick start
-
-Requirement: **Python 3.10 or newer** (`python3 --version` / `py -3 --version`).
-Everything else is installed into a local virtual environment by the launcher.
-
-| Platform | Start | Reachable from phones/tablets on the same Wi-Fi |
-|---|---|---|
-| Linux / macOS | `./run.sh` | `./run.sh --lan` |
-| Windows (cmd) | `run.bat` | `run.bat --lan` |
-| Windows (PowerShell) | `.\run.ps1` | `.\run.ps1 -Lan` |
-
-The launcher creates `.venv`, installs `requirements.txt`, copies `.env.example` → `.env`
-(dummy secrets — **required**, see §2), runs the environment doctor and starts the server at
-**http://127.0.0.1:5000**.
-
-Demo accounts (dev only): `demo_seller / dummySellerPass123`, `demo_buyer / dummyBuyerPass123`.
-
-<details>
-<summary>Manual steps (what the launchers do)</summary>
-
-**Linux / macOS**
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-python scripts/check_env.py       # optional doctor
-python app.py                     # LAN access:  HOST=0.0.0.0 python app.py
-```
-
-**Windows — cmd.exe**
-```bat
-py -3 -m venv .venv && .venv\Scripts\activate.bat
-pip install -r requirements.txt
-copy .env.example .env
-python scripts\check_env.py
-python app.py
-REM LAN access:  set HOST=0.0.0.0 && python app.py
-```
-
-**Windows — PowerShell**
-```powershell
-py -3 -m venv .venv; .\.venv\Scripts\Activate.ps1     # if blocked: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-pip install -r requirements.txt
-Copy-Item .env.example .env
-python scripts\check_env.py
-python app.py                     # LAN access:  $env:HOST="0.0.0.0"; python app.py
-```
-</details>
-
----
-
-## 2. Configuration & dummy secrets
-
-All configuration is read from `.env` (or real environment variables). `.env.example` is the
-template and documents every knob. **Two keys are mandatory** — there is no in-code fallback:
-
-| Variable | What it protects | Effect of rotating it |
-|---|---|---|
-| `SECRET_KEY` | Session cookie + CSRF tokens — *nothing else* | Everyone is logged out. Nothing is invalidated. |
-| `MFA_ENCRYPTION_KEY` | Authenticator secrets (encrypted) and the HMACs of one-time codes, recovery codes, remembered devices, reset tokens | Supported without loss: see *Rotating keys* below |
+Requirements: **Python 3.10+** (tested on 3.12). No database server, no Node, no internet after
+`pip install`.
 
 ```bash
-python -c "import secrets; print(secrets.token_hex(32))"                                   # SECRET_KEY
-python -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"   # MFA_ENCRYPTION_KEY
+./run.sh              # Linux / macOS   -> http://127.0.0.1:5000
+run.bat               # Windows cmd
+.\run.ps1             # Windows PowerShell
 ```
 
-Other dummies (all `DUMMY_*`, safe to leave in dev/test): `PAYMENT_GATEWAY_KEY`, `MAPS_API_KEY`,
-`JWT_SECRET`, `SMTP_USERNAME/PASSWORD`, `TWILIO_ACCOUNT_SID/AUTH_TOKEN`, `CAPTCHA_SITE_KEY/SECRET_KEY`.
-Demo identities are `demo.seller@example.com` / `demo.buyer@example.com` (RFC 2606 reserved domain)
-and phone numbers in the fictional `+1 555-01xx` block.
+The launchers create `.venv`, install `requirements.txt`, copy `.env.example` to `.env` (DUMMY
+values that work as-is), run the environment doctor and start the app. Options:
 
-**Rotating keys**
-```
-# .env
-MFA_ENCRYPTION_KEY=<new key>
-MFA_ENCRYPTION_KEY_PREVIOUS=<old key>        # comma-separate several if needed
-```
+| Linux / macOS | Windows cmd | PowerShell | What |
+|---|---|---|---|
+| `./run.sh --check` | `run.bat --check` | `.\run.ps1 -Check` | environment doctor only |
+| `./run.sh --test` | `run.bat --test` | `.\run.ps1 -Test` | test suite only |
+| `./run.sh --lan` | `run.bat --lan` | `.\run.ps1 -Lan` | also reachable from phones / tablets on your Wi-Fi |
+| `./run.sh --lan-https` | `run.bat --lan-https` | `.\run.ps1 -LanHttps` | same over HTTPS (self-signed) so phones can share GPS |
+
+Manual equivalent:
+
 ```bash
-python scripts/rotate_keys.py --dry-run      # what would change
-python scripts/rotate_keys.py                # re-encrypts all authenticator secrets under the new key
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env                                   # Windows: copy .env.example .env
+python scripts/check_env.py                            # optional: environment doctor
+python app.py                                          # http://127.0.0.1:5000
 ```
-Recovery codes and remembered-device tokens are one-way hashes; they keep verifying against
-`MFA_ENCRYPTION_KEY_PREVIOUS` and are re-keyed on use (devices) or replaced when regenerated
-(codes). Keep the previous key listed for `TRUSTED_DEVICE_DAYS` (30), then remove it.
-Rotating `SECRET_KEY` needs no script.
 
-**Brute-force protection (three layers, all configurable in `.env`)**
+On first start the SQLite database (`instance/uber_services.db`) is created/upgraded and DUMMY
+demo data is seeded.
 
-| Layer | Setting | Default |
+### Demo accounts (DUMMY, seeded in development)
+
+| Username | Password | What it can do |
 |---|---|---|
-| IP rate limits (Flask-Limiter) | `RATELIMIT_*`, `RATELIMIT_STORAGE_URI` | `memory://` — use `redis://…` with several workers |
-| CAPTCHA after repeated failures per IP **or** account | `CAPTCHA_PROVIDER`, `CAPTCHA_AFTER_FAILURES` | `dummy` (offline stub), 3 failures / 15 min |
-| Per-account lockout (last line; kept short so it can't be abused to lock victims out) | `LOGIN_MAX_FAILED_ATTEMPTS`, `LOGIN_LOCKOUT_SECONDS` | 5 → 15 min |
+| `dummy_buyer` | `dummyBuyerPass123` | **rider** (role `buyer`) — has a DUMMY test Visa (`•••• 4242`) on file |
+| `dummy_seller` | `dummySellerPass123` | role `seller` — receives bookings for the 3 demo services |
+| `dummy_driver_1` … `dummy_driver_8` | `dummyDriverPass123` | **drivers** (role `seller`, "driver bots") online around the demo city |
 
-Real CAPTCHA providers: `turnstile` (Cloudflare), `hcaptcha`, `recaptcha` + the site/secret keys.
-Behind a reverse proxy set `BEHIND_PROXY=1` so limits apply to the real client IP.
+**Roles** (chosen at registration) decide which tabs and dashboard sections you see; the pages
+also refuse the role if opened directly:
+
+| | `buyer` | `seller` | `both` |
+|---|---|---|---|
+| **Ride** tab, *My Recent Rides* — request rides | ✓ | – | ✓ |
+| **Drive** tab, *Incoming Booking Requests (as Seller)* — drive, receive bookings | – | ✓ | ✓ |
+| **Post Service** tab, *My Posted Services* — post services | – | – | ✓ |
+
+All demo accounts have a passed (DUMMY) background check. Accounts you register yourself go
+through the fake background-check provider first (see [Test data](#test-data)).
 
 ---
 
-## 3. Testing 2FA in each environment
+## Rider ↔ driver chat
 
-Log in → **Security** (navbar) → set up one or more methods. With the stub backends nothing is
-really sent: **the web page tells you where to look** (a yellow *"TEST MODE: no real e-mail is
-sent. Find it in…"* notice on every page that sends a code or reset link, and again in the
-confirmation message). The three places are the **server console/log** (lines starting with
-`[EMAIL -> …]` / `[SMS -> …]`), the file `instance/auth_outbox.jsonl`, and the fake inbox page
-**http://&lt;host&gt;:5000/dev/outbox** (navbar *📬 Inbox (dev)*) — readable from any device.
+**When:** the chat room opens the moment the rider presses **Order** (or, with auto-dispatch,
+the moment a driver is asked). The driver sees it while still deciding whether to accept, so
+the two can sort out the pickup right away: *"I'm by the newsstand at exit B"*, *"Grey Prius,
+3 minutes"*. It stays open while the driver is on the way and during the ride.
 
-### Desktop (Linux / macOS / Windows) — no phone needed
-| Method | How to test |
+**Where:** on the ride page (`/rides/<id>`, panel *💬 Chat with …*). Drivers also find a
+*💬 Chat* link next to each incoming request and on their current ride. If a message arrives
+while you are on another page (dashboard, drive page, …) you get a notice with an
+*Open chat* link, and unread badges count up.
+
+**What you can send:**
+* text messages (up to 500 characters; Enter sends, Shift+Enter = new line)
+* one-tap **quick replies** — riders: *"I'm at the pickup point."*, *"Where exactly are you?"*, …;
+  drivers: *"I'm on my way."*, *"I've arrived at the pickup point."*, …
+* **📍 Share my location** — your current GPS position, shown with the nearest landmark and a
+  `geo:` link that opens the maps app on phones (browsers only allow GPS on `https://` or
+  `localhost`: use `--lan-https` for phones)
+
+Automatic notes in the timeline: *order placed* (with the vehicle and plate), *driver accepted*,
+*ride started*, *chat closed*.
+
+**When it closes:** the driver declines or does not answer in time, the driver hands the ride
+back, the rider cancels, no driver is available, or the ride is completed. A closed chat stays
+readable for both but takes no new messages.
+
+**Privacy:**
+* only the rider and that one driver can read or write the room;
+* if dispatch moves on to another driver, that driver gets a **new, empty room** — drivers
+  never see what the rider wrote to a previous driver (and vice versa);
+* messages are pushed only to the two participants' own event streams — never on the ride's
+  channel, which other drivers that were offered the ride may be watching;
+* nobody needs to share a phone number.
+
+**Real time, no polling:** messages are delivered over Server-Sent Events on the stream every
+logged-in page already has open (`GET /events/account`), published only after the database
+commit. Sending uses `fetch`; without JavaScript the chat still works through plain form posts.
+Drafts survive the page refresh that happens when the ride status changes, and a page that was
+offline fetches what it missed on reconnect.
+
+### Try it
+
+**Solo (with the driver bots):** log in as `dummy_buyer` → **🚕 Ride** → pickup `Downtown`,
+drop-off `Airport`, tick *auto-dispatch* → **Request**. The chat opens with the bot being asked.
+Type *"Which car are you?"* — the bot answers (bots reply only when nobody is logged in as
+them). Press **Let the driver answer**: the bot accepts and says hello.
+
+**Two people (two browsers or a private window):**
+1. Window A: log in as `dummy_buyer`, request a ride **without** auto-dispatch, **Select**
+   `dummy_driver_2` in the ranked list, press **Order**.
+2. Window B: log in as `dummy_driver_2` → dashboard. The request shows up live with a
+   *💬 Chat* link. Write in window A — window B shows a notice within a fraction of a second.
+3. Chat back and forth, accept, start and complete the ride from window B; the chat closes in
+   both windows.
+
+### Chat API (JSON, session cookie; POSTs need the `X-CSRF-Token` header)
+
+| Method | Path | Body / query | Result |
+|---|---|---|---|
+| `GET` | `/api/rides/<id>/chat` | `?after=<message id>` | your room on this ride + messages (`chat: null` before the order) |
+| `POST` | `/api/rides/<id>/chat` | `{"body": "..."}` or `{"lat": .., "lng": .., "body": "caption"}` | `201` + the message · `400` invalid · `404` not open yet · `409` closed · `429` too fast |
+| `POST` | `/api/rides/<id>/chat/read` | `{"last_id": <id>}` (omit = all) | moves your read marker |
+| `POST` | `/rides/<id>/chat` | form `body` (or `lat`/`lng`) | same as above for plain HTML forms |
+| `GET` | `/events/account` | — | SSE stream; chat messages arrive as `event: chat` |
+
+A pushed `chat` event looks like
+`{"event": "chat", "ride_id": 3, "chat_id": 1, "open": true, "role": "driver", "message": {"id": 7, "kind": "text", "body": "...", "sender": "dummy_buyer", "sender_role": "rider", "mine": false, "created_at": "...Z", "location": null}}`.
+
+Settings (`.env`): `RIDE_CHAT_MAX_LENGTH` (500), `RIDE_CHAT_HISTORY_LIMIT` (200),
+`RIDE_CHAT_RATE_LIMIT` (`20 per minute` per user), `RIDE_CHAT_BOT_REPLIES` (dev tools only).
+
+Code: `rides/chat.py` (rules, lifecycle, push), `rides/chat_routes.py` (routes),
+`rides/matching.py` (opens/closes rooms on every ride state change), `templates/rides/_chat.html`,
+`static/chat.js`, models `RideChat` + `ChatMessage` in `models.py`, tests in `tests/test_ride_chat.py`.
+
+---
+
+## Features at a glance
+
+* **Ride hailing** (`rides/`): offline geocoder/router for a demo city; the nearest 40 online
+  drivers (`RIDE_CANDIDATE_POOL`) within `RIDE_SEARCH_RADIUS_KM` are ranked by distance, rating,
+  price and acceptance rate; the rider
+  selects a driver and presses **Order** (or uses auto-dispatch, which cascades on decline /
+  timeout); live updates over SSE; drivers share GPS or pick a landmark.
+* **Payments** (`payments/`): cards are tokenised in the browser by a fake vault — the server
+  never sees a card number; Stripe / PayPal connect flows are simulated; ordering places a
+  pre-authorisation of the quote + 50 % that is captured for the real fare on completion.
+* **Background checks** (`background/`): required before anyone can ride, drive, book or post;
+  fake provider with signed webhooks; disputes go to managers in the admin dashboard.
+* **Auth** (`auth/`): password + optional 2FA (authenticator app, e-mail or SMS codes, recovery
+  codes, trusted devices), account lockout, IP rate limiting, CAPTCHA after failures, password
+  reset, social login via a fake OAuth provider.
+* **Marketplace**: post, search and book services.
+* **Admin dashboard** (`admin_dashboard/`): a separate app (port 5001) for managers — see
+  [admin_dashboard/README.md](admin_dashboard/README.md). Start ServiceUber first, then
+  `cd admin_dashboard && ./run.sh` (demo operator `dummy_manager` / `dummyManagerPass123`).
+
+---
+
+## Test data
+
+Everything below is public test data for the fake providers — nothing here is real.
+
+**Card:** use the public fake test card `4242 4242 4242 4242` with any future expiry and any
+3-digit CVC — it is the only card number you need. (The fake vault also knows a few other public
+test numbers that simulate declines; they are listed in `payments/cards.py` if you want to test
+failure paths.)
+
+**Background checks** (fake provider — decided by the legal **last name**):
+
+| Last name contains | Result |
 |---|---|
-| Authenticator app | On the setup page expand *Enter the key manually*, then run `python scripts/fake_authenticator.py <key>` (`--watch` keeps printing codes). Or use a desktop authenticator (1Password, Bitwarden, Authy desktop, KeePassXC) and scan the QR. |
-| E-mail code | Click *Send code* → read it at `/dev/outbox`. |
-| SMS code | Enter a fictional E.164 number (e.g. `+15550100001`) → read the code at `/dev/outbox`. |
-| Recovery codes | Shown once when the first method is enabled; use one on the sign-in page via the *Recovery code* tab. |
-| Password reset | Login → *Forgot password?* → the link appears in `/dev/outbox` → if 2FA is on you must pass it (e-mail codes are not offered when a stronger factor exists) → new password; every other session and remembered device is signed out. |
-| CAPTCHA | Fail login 3× → the dummy challenge ("What is 3 + 4?") appears on login / register / forgot-password. |
-| Rate limit | Submit any auth form more than the per-minute limit → HTTP 429 page. |
+| anything else | `clear` — passed |
+| `consider` | needs a manager's review (admin dashboard) |
+| `pending` | stays pending — finish it at **🧪 Provider (dev)** |
+| `unverified` | identity not verified — resubmit |
 
-### Smartphone / tablet (iOS, iPadOS, Android) as the *client*
-1. Start the server with LAN access: `./run.sh --lan` / `run.bat --lan` / `.\run.ps1 -Lan`.
-   The console prints the address(es), e.g. `http://192.168.1.20:5000` (also on `/dev/env`).
-2. Allow the port through the firewall the first time:
-   * **Windows**: accept the Defender prompt, or `netsh advfirewall firewall add rule name="ServiceUber" dir=in action=allow protocol=TCP localport=5000`
-   * **macOS**: accept the "allow incoming connections" prompt
-   * **Linux**: `sudo ufw allow 5000/tcp` (if ufw is active)
-3. Open the address in the phone's browser. The UI is responsive (Bootstrap 5); code fields use
-   `inputmode="numeric"` and `autocomplete="one-time-code"`, so iOS/Android offer SMS/e-mail
-   autofill when a real provider is configured.
-4. Authenticator setup **on the phone itself**: the QR can't be scanned from the same screen, so tap
-   **Open in authenticator app on this device** (an `otpauth://` link that Google Authenticator,
-   Authy, Microsoft Authenticator, 1Password… pick up) or paste the manual key.
-5. Authenticator setup **scanning from a phone** while the browser is on a laptop: just scan the QR.
-6. Read e-mail/SMS codes on the phone at `http://<lan-ip>:5000/dev/outbox`.
+A driving-licence number (any DUMMY value, e.g. `DUMMY-DL-1234`) adds the driver package;
+riders need 18+, drivers 21+.
 
-Tip: `python scripts/smoke_test.py http://192.168.1.20:5000` from another machine validates the
-whole flow across the network.
-
-### Real providers
-```
-EMAIL_BACKEND=smtp   SMTP_HOST=smtp.example.com SMTP_PORT=587 SMTP_USE_TLS=true SMTP_USE_AUTH=true SMTP_USERNAME=… SMTP_PASSWORD=…
-SMS_BACKEND=twilio   TWILIO_ACCOUNT_SID=… TWILIO_AUTH_TOKEN=… TWILIO_FROM_NUMBER=+1…
-```
+**Codes** sent by e-mail / SMS (2FA, verification, password reset) are not really sent: they are
+printed in the terminal and shown in the fake inbox at **📬 Inbox (dev)** (`/dev/outbox`).
+SMS 2FA asks for a phone number — use a fictional one such as `+1 555 010 0199`
+(555-01xx numbers are reserved for fiction).
 
 ---
 
-### Social login (OAuth 2.0: Google, Apple, Facebook)
+## Configuration
 
-Buttons *Continue with Google / Apple / Facebook* are on the login and register pages; *Link …*
-buttons are under **Security → Connected accounts**.
+All settings live in `.env` (template: [`.env.example`](.env.example), fully commented). The
+defaults are safe for local development. The most relevant:
 
-**Default: `OAUTH_MODE=fake`** — the app hosts a **stub identity provider** at
-`/dev/oauth/<provider>/…`. Clicking a button opens a yellow *FAKE … sign-in* consent page where
-you type the e-mail/name the provider should "return", tick *verified*, and press **Allow** (or
-**Deny** to test cancellation). Nothing is sent anywhere; no Google/Apple/Facebook account is
-needed, and it works on phones/tablets over the LAN too. The stub enforces what the real
-providers enforce — client id/secret, `redirect_uri`, single-use code, PKCE `S256`, and for
-Google/Apple a signed `id_token` with `nonce` — so the **real client code** (`auth/oauth.py`) is
-what gets validated.
-
-What to try:
-| Scenario | Expected |
-|---|---|
-| New identity | account created (no password), logged in, nudged to add 2FA |
-| Same identity again | logs straight in, no duplicate |
-| Identity whose e-mail matches an existing password account | **not** auto-linked — you're sent to log in with password (+2FA); the link completes afterwards |
-| Account with 2FA enabled | social login still asks for the second factor |
-| Security → Link / Unlink | unlink needs the password; the last social identity can't be unlinked until a password exists (*Forgot password?* sets one) |
-| Apple | `form_post` callback (cross-site POST) and `id_token` are exercised; the *first authorization* checkbox simulates Apple sending the name only once |
-
-Standalone stub (e.g. provider on another machine): `python scripts/fake_oauth_server.py 0.0.0.0 8090`
-and run the app with `OAUTH_FAKE_BASE_URL=http://<ip>:8090`.
-
-**Real providers:** set `OAUTH_MODE=real`, register the redirect URIs shown on
-`/oauth/providers` (`<APP_BASE_URL>/oauth/<provider>/callback`) with each provider, and fill in
-the `OAUTH_*` credentials in `.env`. Apple additionally needs the `cryptography` package (its
-client secret is an ES256 JWT signed with your `.p8` key). Google and Facebook need only the
-standard library.
-
-## 4. Fakes & stubs
-
-Everything under `scripts/` uses **only the Python standard library**, so it runs on any OS even
-if `pip install` is incomplete.
-
-| Stub | Replaces | Usage |
+| Variable | Default | Meaning |
 |---|---|---|
-| `console` backend + `/dev/outbox` | E-mail & SMS providers | Default. Codes go to the log, `instance/auth_outbox.jsonl` and the fake inbox page. |
-| `scripts/fake_authenticator.py` | Google Authenticator / Authy | `python scripts/fake_authenticator.py JBSW Y3DP … [--watch]` or pass the `otpauth://` URI |
-| `scripts/fake_smtp_server.py` | Real SMTP server — exercises the **real** `smtp` backend | Terminal 1: `python scripts/fake_smtp_server.py` · Terminal 2: `EMAIL_BACKEND=smtp SMTP_HOST=127.0.0.1 SMTP_PORT=2525 SMTP_USE_TLS=false python app.py` |
-| `scripts/fake_twilio_server.py` | Twilio REST API — exercises the **real** `twilio` backend incl. Basic auth | Terminal 1: `python scripts/fake_twilio_server.py` · Terminal 2: `SMS_BACKEND=twilio TWILIO_API_BASE=http://127.0.0.1:8089 python app.py` |
-| `memory` backend | Providers, inside pytest | Selected automatically by `TestingConfig` |
-| `CAPTCHA_PROVIDER=dummy` | Turnstile / hCaptcha / reCAPTCHA | Offline arithmetic challenge; `scripts/smoke_test.py` solves it like a tester would. Production refuses it. |
-| `scripts/rotate_keys.py --dry-run` | — | Rehearse an `MFA_ENCRYPTION_KEY` rotation against your database |
-| `OAUTH_MODE=fake` (in-app `/dev/oauth/…`) | Google / Apple / Facebook identity providers | Default. Consent page to pick the identity; enforces PKCE, state, client auth, signed `id_token`. |
-| `scripts/fake_oauth_server.py` | Same, as a standalone process | `python scripts/fake_oauth_server.py` then `OAUTH_FAKE_BASE_URL=http://127.0.0.1:8090` |
-| `/dev/env` · `/dev/env.json` | — | Platform, dependency, backend and storage report for the running install |
-| `/healthz` | — | Liveness probe (always on) |
+| `SECRET_KEY`, `MFA_ENCRYPTION_KEY` | `DUMMY_…` | **required**; session signing / encryption at rest |
+| `DATABASE_URL` | `sqlite:///uber_services.db` | any SQLAlchemy URL (SQLite file lives in `instance/`) |
+| `HOST`, `PORT`, `HTTPS` | `127.0.0.1`, `5000`, off | `HOST=0.0.0.0` for the LAN, `HTTPS=1` self-signed |
+| `ENABLE_DEV_TOOLS`, `SEED_DEMO_DATA` | `true` | fake inbox, simulators, demo accounts (forced off in production) |
+| `PAYMENTS_MODE`, `OAUTH_MODE`, `BACKGROUND_CHECK_PROVIDER` | `fake` | offline stubs |
+| `EMAIL_BACKEND`, `SMS_BACKEND` | `console` | `console` / `memory` / `smtp` / `twilio` |
+| `CAPTCHA_PROVIDER` | `dummy` | `none`, `dummy`, `turnstile`, `hcaptcha`, `recaptcha` |
+| `RIDE_OFFER_TTL_SECONDS` | `120` | how long a driver has to answer |
+| `RIDE_CHAT_*` | see above | chat limits |
+| `ADMIN_API_TOKEN` | `DUMMY_ADMIN_API_TOKEN` | must equal `MAIN_APP_API_TOKEN` in `admin_dashboard/.env` |
 
-Messages captured by the fake SMTP/Twilio servers also appear on `/dev/outbox`.
-On Windows set variables with `set NAME=value` (cmd) or `$env:NAME="value"` (PowerShell) — or put them in `.env`.
-
----
-
-## 5. Validating an installation
+**Generate real keys** (for anything beyond local testing):
 
 ```bash
-python scripts/check_env.py         # 1. doctor: Python, deps, TOTP vectors, SQLite, encryption, app boot
-python -m pytest                    # 2. 92 unit/integration tests (in-memory DB, no network, no .env needed)
-python app.py                       # 3. start the server (needs .env) …
-python scripts/smoke_test.py        # … and drive it end-to-end like a browser (41 steps incl. reset, CAPTCHA, 429, OAuth)
+python -c "import secrets; print(secrets.token_urlsafe(48))"                                          # SECRET_KEY
+python -c "import secrets, base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())" # MFA_ENCRYPTION_KEY
 ```
-Launcher shortcuts: `./run.sh --check`, `./run.sh --test` (same flags for `run.bat` / `run.ps1 -Check -Test`).
 
-What gets verified per environment:
-* **TOTP** — stdlib implementation checked against RFC 6238 / RFC 4226 vectors (and pyotp if installed).
-* **Secret encryption** — Fernet via `cryptography`; if that package is unavailable the stdlib
-  fallback is used and reported (dev/test only).
-* **QR rendering** — SVG via `qrcode`; if missing, the manual key / `otpauth://` link still work.
-* **Storage** — SQLite file under `instance/`, outbox file path, write permissions.
+Rotate `MFA_ENCRYPTION_KEY` with `MFA_ENCRYPTION_KEY_PREVIOUS` + `python scripts/rotate_keys.py`.
 
-A GitHub Actions matrix (ubuntu / macos / windows × Python 3.10–3.13) is provided in
-`.github/workflows/ci.yml`.
+**Production** (`APP_ENV=production`) refuses to start while any secret is `DUMMY`, a fake
+provider is active, dev tools are on or `APP_BASE_URL` is not `https://`. Real payment /
+background-check / maps integrations are not part of this demo.
+
+### Running under load (several worker processes)
+
+Measured in [loadtest/REPORT.md](loadtest/REPORT.md) (2000-user login burst + 300 simultaneous
+ride requests). What to do, and why:
+
+* **One single-threaded API worker per core, leaving a core free.** The request path is
+  CPU-bound Python: threads in the same process only contend for the GIL. On 4 vCPU:
+  `-w 3 -k sync`. (gunicorn turns `sync` into `gthread` if you pass `--threads` > 1.)
+* **`EVENT_BUS=unix` as soon as there is more than one process.** Live updates (ride status,
+  chat, background checks) are fanned out between the processes of the host (`rides/bus.py`).
+  Without it, a rider and a driver served by different workers miss each other's updates.
+* **Serve the live-update streams (`/events/...`) from a separate server.** An open stream holds
+  a worker or thread for its whole lifetime; a `sync` API worker would be blocked by it. Both
+  servers share the events through the bus:
+
+  ```bash
+  export APP_ENV=production EVENT_BUS=unix BEHIND_PROXY=1     # + your real secrets
+  gunicorn -w 3 -k sync -b 127.0.0.1:8000 wsgi:app                     # API + pages
+  gunicorn -w 1 -k gthread --threads 200 -b 127.0.0.1:8001 wsgi:app    # /events/* (SSE)
+  # reverse proxy (HTTPS): /events/ -> :8001 with buffering off, everything else -> :8000
+  ```
+* **SQLite** (the default) is tuned for this (`dbtuning.py`): WAL, a 15 s busy timeout, and a
+  writer queue that hands the single write lock over within about a millisecond. Every ride
+  request still writes under one database-wide lock, so beyond a few dozen ride requests per
+  second **use PostgreSQL** (`DATABASE_URL`). Several hosts also need Redis, for rate limits
+  (`RATELIMIT_STORAGE_URI`) and in place of the single-host event bus.
+* Windows: `waitress-serve --listen=0.0.0.0:8000 wsgi:app` with one process (no `EVENT_BUS`).
+
+Related settings: `RIDE_DRIVER_INDEX_TTL_SECONDS` (the matcher's in-memory driver index),
+`RIDE_CANDIDATE_POOL` (score only the nearest N drivers; default 40, 0 = all), `SQLITE_WAL`,
+`SQLITE_BUSY_TIMEOUT_MS`, `SQLITE_WRITE_LOCK` (and `SQLITE_WRITE_LOCK_STATS=1` for lock timings).
 
 ---
 
-## 6. Production deployment
+## Phones and tablets
 
-```
-APP_ENV=production  SECRET_KEY=<real>  MFA_ENCRYPTION_KEY=<real>  APP_BASE_URL=https://your.host
-EMAIL_BACKEND=smtp  SMS_BACKEND=twilio  (+ credentials)
-CAPTCHA_PROVIDER=turnstile|hcaptcha|recaptcha (+ keys)   RATELIMIT_STORAGE_URI=redis://...   BEHIND_PROXY=1
-OAUTH_MODE=real + OAUTH_* credentials (or trim OAUTH_PROVIDERS to the ones you configured)
-```
-* Linux/macOS: `pip install gunicorn && gunicorn -w 2 -b 0.0.0.0:8000 wsgi:app`
-* Windows: `pip install waitress && waitress-serve --listen=0.0.0.0:8000 wsgi:app`
-* Always behind TLS (nginx / Caddy / IIS / a cloud load balancer). Dev tools and demo data are forced off.
-* Read `SECURITY_REVIEW.md` before going live — it lists what is and isn't covered.
+`./run.sh --lan-https` (or `HOST=0.0.0.0 HTTPS=1 python app.py`) serves the app on your LAN with
+a self-signed certificate; the log prints the URLs and `/dev/env` shows QR codes to open them.
+Accept the certificate warning on the phone. HTTPS is what lets the browser share GPS — for the
+driver's position and for **📍 Share my location** in the chat.
 
 ---
 
-## 7. Troubleshooting
+## Tests
 
-**`ModuleNotFoundError: No module named 'flask_wtf'` / `'flask_...'` when running `python -m pytest`**
-The Python that runs pytest is not the one you installed the requirements into (typically the
-global `python` instead of `.venv`). `tests/conftest.py` now stops with the exact interpreter path
-and the command to fix it. Either activate the venv first (`.venv\Scripts\activate` /
-`source .venv/bin/activate`), run `.venv\Scripts\python -m pytest`, or use `run.bat --test` /
-`.\run.ps1 -Test` / `./run.sh --test`, which install into the right interpreter before testing.
-(Flask-WTF itself is no longer a dependency — CSRF protection is built in.)
+```bash
+python -m pytest                  # or ./run.sh --test   (in-memory SQLite, no network, ~1 min)
+python scripts/smoke_test.py      # live end-to-end check against a RUNNING app (python app.py)
+```
 
-**`RuntimeError: SECRET_KEY, MFA_ENCRYPTION_KEY must be set in .env`**
-Intentional: the app never falls back to a hidden default key. `copy .env.example .env` (Windows) /
-`cp .env.example .env` — the template contains DUMMY values for development.
+* `tests/test_ride_chat.py` — the chat: opens on order, live push to participants only, a fresh
+  room per driver, validation, escaping, every closing path, unread markers, bots, rate limit,
+  background-check gate, schema upgrade of an existing database.
+* `tests/test_app_smoke.py` — pages, auth, marketplace, ride dispatch / payment regression,
+  production guard, and that `.env.example` documents every setting with DUMMY secrets only.
+* On Windows, 6 tests are **skipped**: the SQLite writer queue needs `fcntl`, and the cross-process
+  event bus needs Unix datagram sockets, neither of which exists there. The app falls back
+  automatically, to SQLite's own locking and to in-process events; the other tests cover that.
+  They are skipped by capability, so the skip list is the same whatever the OS.
+* `tests/test_load_optimisations.py` — every fast path gives exactly the answer of the code it
+  replaced (background-check rules in every state, driver index against a brute-force scan,
+  offer expiry). Also: the SQLite writer queue never leaks its lock under 20 concurrent writers,
+  and the event bus delivers across processes.
+* `scripts/smoke_test.py` — registers a fresh DUMMY account, passes the background check, orders
+  a ride, chats with the driver bot (checks the live SSE push), completes the ride, verifies the
+  chat closed.
 
-**`Failed building wheel for pillow` / `Pillow 10.4.0 does not support Python 3.14` (Windows)**
-Old versions pinned Pillow to render the QR as PNG. Pillow is a compiled package and had no wheel
-for the new Python, so pip aborted the *whole* install. Pillow is **no longer a dependency** — QR codes
-are SVG. Delete `.venv` and reinstall: `pip install -r requirements.txt`.
+Environment doctor: `python scripts/check_env.py` (or `/dev/env` in the browser).
 
-**`ModuleNotFoundError: No module named 'pyotp'` when running pytest**
-Consequence of the failed install above (pip stopped before reaching the remaining packages).
-`pyotp` is no longer required either — TOTP is implemented in `auth/totp.py`. Reinstall and run
-`python scripts/check_env.py`; it tells you exactly what is missing.
+**Load tests** (`loadtest/`, extra requirements in `loadtest/requirements.txt`):
+`python loadtest/seed.py` (1000 riders + 1000 drivers in a separate database), then
+`python loadtest/run.py --workers 3 --worker-class sync --env EVENT_BUS=unix`. It runs a login
+burst of 2000 users in 60 s, then 3 × 300 simultaneous ride requests, and reports latency
+percentiles, throughput, server CPU and memory, and hypervisor CPU steal. Latest result on
+4 vCPU: ride request **P95 ≈ 3 s** (target < 7 s) at **71 % peak server CPU** (target < 80 %),
+0 errors. The load tools (`run.py`) need Linux / macOS, because they start gunicorn.
+`python loadtest/bench_request.py` measures the CPU cost of one ride request. Results and
+analysis: [loadtest/REPORT.md](loadtest/REPORT.md).
 
-**`cryptography` fails to install** — rare (it ships abi3 wheels for all platforms), but the app still
-runs: secrets are protected with a stdlib fallback and `/dev/env` reports `stdlib HMAC-CTR fallback`.
-Install a newer `cryptography` when a wheel is available; ciphertexts are prefixed so both coexist.
-
-**Authenticator code "didn't match"** — TOTP depends on the clock. Make sure the server *and* the
-phone/computer running the authenticator are time-synced (Windows: *Settings → Time → Sync now*).
-The app accepts ±30 s of drift.
-
-**Phone can't reach the server** — start with `--lan`, check the firewall rule for port 5000, make sure
-both devices are on the same network (guest Wi-Fi often isolates clients), and use the IP printed at
-startup / shown on `/dev/env`.
-
-**PowerShell: "running scripts is disabled"** — `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, or use `run.bat`.
-
-**`py` not found on Windows** — install Python from python.org (tick *Add to PATH* and the *py launcher*), or replace `py -3` with `python`.
-
-**Port already in use** — `PORT=5001 python app.py` (`set PORT=5001` / `$env:PORT=5001` on Windows).
-
-**Windows Subsystem for Linux** — follow the Linux steps inside WSL; to reach it from a phone bind with `--lan` and forward the port from Windows (`netsh interface portproxy add v4tov4 listenport=5000 connectaddress=<wsl-ip> connectport=5000`).
-
-**CAPTCHA keeps appearing / HTTP 429 while testing** — you tripped the brute-force layers (3 failures
-in 15 min → CAPTCHA; more than the per-minute limit → 429). Wait a minute, answer the dummy challenge,
-or relax `CAPTCHA_AFTER_FAILURES` / `RATELIMIT_*` in `.env` for load testing.
-
-**Existing `instance/uber_services.db` from the original app** — it is upgraded in place on first start (`migrations.py` adds the new columns/tables); no data is lost.
+Local fake servers for testing the *real* delivery code paths: `scripts/fake_smtp_server.py`
+(port 2525, `EMAIL_BACKEND=smtp`), `scripts/fake_twilio_server.py` (port 8089,
+`SMS_BACKEND=twilio`, `TWILIO_API_BASE=http://127.0.0.1:8089`), `scripts/fake_oauth_server.py`
+(port 8090, `OAUTH_FAKE_BASE_URL=http://127.0.0.1:8090`), `scripts/fake_authenticator.py`
+(prints TOTP codes for a secret).
 
 ---
 
-## 8. Project layout
+## Dev tools (only with `ENABLE_DEV_TOOLS=true`)
+
+| URL | What |
+|---|---|
+| `/dev/outbox` | fake inbox: e-mail / SMS codes |
+| `/dev/env` | platform, dependency and configuration report (+ LAN QR codes) |
+| `/dev/background-provider` | finish pending background checks (stand-in for the provider) |
+| `POST /dev/rides/simulate` | driver bots: `action=respond` (answer offers), `advance` (start / complete), `shuffle` (re-position fleet) |
+| `/dev/rides/fleet` | JSON snapshot of the bot fleet |
+| `/healthz` | liveness probe (always on) |
+
+---
+
+## Project layout
 
 ```
-app.py               app factory + marketplace routes           run.sh / run.bat / run.ps1   platform launchers
-wsgi.py              production entry point (gunicorn/waitress) .env.example                  all settings documented
-config.py            env-driven config, required keys, dummies  requirements.txt              pure-Python deps
-extensions.py        db / login manager / built-in CSRF         throttle.py                   IP rate limits (Flask-Limiter)
-models.py            User (+2FA), Service, Booking, OTP,        requirements-optional.txt     pyotp, gunicorn, waitress
-                     RecoveryCode, TrustedDevice, AuthEvent     pytest.ini                    test config (pythonpath=.)
-migrations.py        in-place SQLite schema upgrade             SECURITY_REVIEW.md            assessment & roadmap
-clock.py             UTC "now" helper
-devtools.py          /healthz, /dev/outbox, /dev/env
-auth/
-  routes.py          register, login, 2FA, reset, settings      scripts/
-  captcha.py         none / dummy / turnstile / hcaptcha / re…    rotate_keys.py             MFA key rotation
-  oauth.py           OAuth 2.0 / OIDC client (stdlib)             fake_oauth_server.py       standalone stub IdP
-  oauth_routes.py    start / callback / link / unlink
-  fake_oauth.py      in-app stub identity provider (/dev/oauth)
-  jwt_min.py         HS256 / RS256-JWKS / ES256 for Apple
-  mfa.py             TOTP/e-mail/SMS, recovery, devices, reset    check_env.py               environment doctor
-  totp.py            RFC 6238 TOTP, stdlib only                   smoke_test.py              end-to-end test vs running server
-  crypto.py          Fernet + stdlib fallback, keyed hashes       fake_authenticator.py      TOTP code generator
-  delivery.py        console / memory / smtp / twilio             fake_smtp_server.py        SMTP sink
-  audit.py           auth event log                               fake_twilio_server.py      Twilio API stub
-templates/auth/      login, register, 2FA, security pages       tests/
-templates/dev/       fake inbox, environment report               test_auth.py               29 auth/2FA tests
-static/app.css                                                    test_totp.py               RFC vectors (+pyotp cross-check)
-                                                                  test_platform.py           fallbacks, stubs, prod guard
-                                                                  test_hardening.py          CSRF, rate limit, CAPTCHA, reset, rotation
-                                                                  test_oauth.py              social login via the stub, all 3 providers
+app.py              app factory, marketplace routes, demo seeding     wsgi.py   production entry point
+dbtuning.py         SQLite under concurrency: WAL, busy timeout, writer queue
+config.py           settings from .env (DUMMY placeholders)           models.py SQLAlchemy models
+extensions.py       db, login manager, CSRF                            migrations.py  idempotent schema upgrade
+throttle.py         IP / per-user rate limiting                        devtools.py    /dev/* + /healthz
+auth/               login, 2FA, OAuth, password reset, CAPTCHA
+rides/              geo stub, matching + dispatch, SSE events, offer sweeper, bots,
+                    chat.py + chat_routes.py (rider <-> driver chat),
+                    driver_index.py (in-memory driver search), bus.py (events across worker processes)
+loadtest/           seed + load generator + per-request benchmark, REPORT.md with the results
+payments/           fake vault + gateway, payment methods, holds, ledger
+background/         background checks, disputes, Admin API for the dashboard
+templates/, static/ Jinja templates, vendored Bootstrap, page scripts (CSP: no inline JS)
+scripts/            environment doctor, smoke test, fake SMTP / Twilio / OAuth servers, key rotation
+tests/              pytest suite
+admin_dashboard/    the separate managers' app (own README, .env, database)
 ```
 
-MIT-style demo — feel free to extend.
+See `SECURITY_REVIEW.md` for the security review and change log.
+
+---
+
+## Troubleshooting
+
+* **`SECRET_KEY, MFA_ENCRYPTION_KEY must be set in .env`** — copy `.env.example` to `.env`
+  (the launchers do this).
+* **`ModuleNotFoundError` when running pytest** — pytest runs with a different interpreter than
+  the one you installed into: `python -m pytest` from the activated `.venv`, or `./run.sh --test`.
+* **`./run.sh: Permission denied`** — `chmod +x run.sh` or run `bash run.sh`.
+* **"No drivers are available"** — the demo bots go stale after
+  `DRIVER_LOCATION_STALE_SECONDS`; restart the app or `POST /dev/rides/simulate action=shuffle`
+  (the *Environment check* page links the simulator).
+* **Chat says "live" never / messages only appear after reload** — a proxy is buffering
+  Server-Sent Events; disable buffering for `/events/` (`X-Accel-Buffering: no` is already sent).
+* **"📍 Share my location" is missing** — the page is not a secure context; use `localhost` or
+  start with `--lan-https`.
+* **Demo accounts locked / rejected / without their test card** — `python scripts/reset_demo_accounts.py`
+  makes them usable again (other accounts are untouched).
+* **Start over with completely fresh data** — stop the app and delete `instance/uber_services.db`;
+  it is recreated and re-seeded on the next start.
